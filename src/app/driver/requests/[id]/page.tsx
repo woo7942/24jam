@@ -14,6 +14,8 @@ import {
   Truck,
   CheckCircle2,
   AlertCircle,
+  Handshake,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -138,7 +140,6 @@ export default function DriverRequestDetailPage() {
     const loadData = async () => {
       const supabase = createClient();
 
-      // 요청 정보
       const { data: req, error: reqError } = await supabase
         .from("move_requests")
         .select("*")
@@ -177,6 +178,17 @@ export default function DriverRequestDetailPage() {
 
   const handleSubmit = async () => {
     if (!user || !request) return;
+
+    // 🔒 매칭/종료 상태 재확인 (서버에서도 RLS로 다시 체크되지만 UX용)
+    if (request.status !== "open") {
+      toast.error("이미 매칭이 완료되었거나 종료된 요청입니다");
+      router.push("/driver/requests");
+      return;
+    }
+    if (new Date(request.bid_deadline).getTime() < Date.now()) {
+      toast.error("입찰 마감 시간이 지났습니다");
+      return;
+    }
 
     const priceNum = parseInt(price.replace(/,/g, ""));
     if (!priceNum || priceNum <= 0) {
@@ -249,9 +261,17 @@ export default function DriverRequestDetailPage() {
 
   if (!request) return null;
 
-  const isClosed =
-    request.status !== "open" ||
+  // 🔒 상태 분기
+  const isMatched = request.status === "matched";
+  const isCompleted = request.status === "completed";
+  const isCancelled = request.status === "cancelled";
+  const isDeadlinePassed =
     new Date(request.bid_deadline).getTime() < Date.now();
+  const canBid = !isMatched && !isCompleted && !isCancelled && !isDeadlinePassed;
+
+  // 내 입찰이 selected/rejected 인지
+  const myBidSelected = myBid?.status === "selected";
+  const myBidRejected = myBid?.status === "rejected";
 
   return (
     <div className="app-container pb-24">
@@ -266,7 +286,19 @@ export default function DriverRequestDetailPage() {
         {/* 상태 + 마감 시간 */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            {myBid && (
+            {myBidSelected && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-mint-100 px-2.5 py-1 text-xs font-bold text-mint-700">
+                <Handshake className="h-3.5 w-3.5" />
+                내가 선택됨
+              </span>
+            )}
+            {myBidRejected && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+                <XCircle className="h-3.5 w-3.5" />
+                선택되지 않음
+              </span>
+            )}
+            {myBid && !myBidSelected && !myBidRejected && (
               <span className="inline-flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-bold text-mint-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 입찰 완료
@@ -278,10 +310,12 @@ export default function DriverRequestDetailPage() {
               </span>
             )}
           </div>
-          <span className="flex items-center gap-1 text-xs font-semibold text-orange-600">
-            <Clock className="h-3.5 w-3.5" />
-            {getRemainingTime(request.bid_deadline)}
-          </span>
+          {!isMatched && !isCancelled && !isCompleted && (
+            <span className="flex items-center gap-1 text-xs font-semibold text-orange-600">
+              <Clock className="h-3.5 w-3.5" />
+              {getRemainingTime(request.bid_deadline)}
+            </span>
+          )}
         </div>
 
         {/* 이사 종류 */}
@@ -400,8 +434,66 @@ export default function DriverRequestDetailPage() {
           </div>
         )}
 
-        {/* 입찰 폼 */}
-        {!isClosed ? (
+        {/* 🔒 상태별 분기 */}
+        {isMatched && myBidSelected ? (
+          // 내가 선택된 경우
+          <div className="rounded-2xl border-2 border-mint-300 bg-mint-50 p-5 mt-5 text-center">
+            <Handshake className="h-10 w-10 text-mint-600 mx-auto mb-2" />
+            <h3 className="font-bold text-mint-900 mb-1">
+              🎉 매칭에 성공했어요!
+            </h3>
+            <p className="text-sm text-mint-700 mb-4">
+              고객님이 회원님을 선택했습니다. 매칭 목록에서 고객 연락처를 확인하세요.
+            </p>
+            <Link
+              href="/driver/requests"
+              className="inline-block rounded-full bg-mint-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-mint-700"
+            >
+              매칭 목록 보기
+            </Link>
+          </div>
+        ) : isMatched ? (
+          // 다른 기사가 선택된 경우
+          <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
+            <div className="text-3xl mb-2">🤝</div>
+            <h3 className="font-bold text-gray-800 mb-1">
+              이미 매칭이 완료된 요청입니다
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              다른 기사님이 선택되었어요. 다음 기회를 노려보세요!
+            </p>
+            <Link
+              href="/driver/requests"
+              className="inline-block rounded-full bg-mint-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-mint-700"
+            >
+              다른 요청 보기
+            </Link>
+          </div>
+        ) : isCancelled ? (
+          <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
+            <div className="text-3xl mb-2">🚫</div>
+            <h3 className="font-bold text-gray-800 mb-1">취소된 요청입니다</h3>
+            <p className="text-sm text-gray-600">
+              고객이 요청을 취소했습니다.
+            </p>
+          </div>
+        ) : isCompleted ? (
+          <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
+            <div className="text-3xl mb-2">✅</div>
+            <h3 className="font-bold text-gray-800 mb-1">완료된 요청입니다</h3>
+          </div>
+        ) : isDeadlinePassed ? (
+          <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
+            <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-700">
+              입찰 마감 시간이 지났어요
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              아쉽게도 더 이상 입찰할 수 없습니다.
+            </p>
+          </div>
+        ) : canBid ? (
+          // 입찰 폼
           <div className="rounded-2xl border-2 border-mint-200 bg-mint-50/50 p-4 mt-5">
             <div className="flex items-center gap-2 mb-4">
               <Truck className="h-5 w-5 text-mint-600" />
@@ -474,14 +566,7 @@ export default function DriverRequestDetailPage() {
               </p>
             </div>
           </div>
-        ) : (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6 mt-5 text-center">
-            <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-gray-700">
-              입찰이 마감되었습니다
-            </p>
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

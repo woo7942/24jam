@@ -10,10 +10,10 @@ import {
   Clock,
   Package,
   Loader2,
-  Building2,
   CheckCircle2,
   Inbox,
   User as UserIcon,
+  Phone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -131,25 +131,26 @@ export default function CustomerRequestDetailPage() {
 
       setRequest(req);
 
-      // DB 함수로 입찰 + 기사 정보 한 번에 가져오기 (RLS 우회, 권한 체크 내장)
-const { data: bidsData, error: bidsError } = await supabase
-  .rpc("get_bids_for_my_request", { p_request_id: requestId });
+      // DB 함수로 입찰 + 기사 정보 한 번에 가져오기
+      const { data: bidsData, error: bidsError } = await supabase.rpc(
+        "get_bids_for_my_request",
+        { p_request_id: requestId }
+      );
 
-if (bidsError) {
-  console.error("입찰 조회 실패:", bidsError);
-  toast.error("입찰 목록을 불러오지 못했어요");
-  setLoading(false);
-  return;
-}
+      if (bidsError) {
+        console.error("입찰 조회 실패:", bidsError);
+        toast.error("입찰 목록을 불러오지 못했어요");
+        setLoading(false);
+        return;
+      }
 
-const enriched = (bidsData || []).map((b: Bid) => ({
-  ...b,
-  driver_name: b.driver_name || "기사님",
-}));
+      const enriched = (bidsData || []).map((b: Bid) => ({
+        ...b,
+        driver_name: b.driver_name || "기사님",
+      }));
 
-setBids(enriched);
-setLoading(false);
-
+      setBids(enriched);
+      setLoading(false);
     };
 
     loadData();
@@ -157,25 +158,49 @@ setLoading(false);
 
   const handleAccept = async (bid: Bid) => {
     if (!request) return;
-    if (!confirm(`${bid.driver_name} 기사님을 선택하시겠어요?\n선택 후에는 변경이 어렵습니다.`)) {
+    if (request.status !== "open") {
+      toast.error("이미 매칭이 완료된 요청입니다");
+      return;
+    }
+    if (
+      !confirm(
+        `${bid.driver_name} 기사님을 선택하시겠어요?\n선택 후에는 변경이 어렵습니다.`
+      )
+    ) {
       return;
     }
 
     setAccepting(bid.id);
     const supabase = createClient();
 
-    const { error: bidError } = await supabase
+    // 1. 선택한 입찰 → selected
+    const { error: e1 } = await supabase
       .from("bids")
       .update({ status: "selected" })
       .eq("id", bid.id);
 
-    if (bidError) {
+    if (e1) {
       setAccepting(null);
-      toast.error("선택 실패: " + bidError.message);
+      console.error(e1);
+      toast.error("선택 실패: " + e1.message);
       return;
     }
 
-    const { error: reqError } = await supabase
+    // 2. 같은 요청의 다른 입찰들 → rejected (Realtime 알림용)
+    const { error: e2 } = await supabase
+      .from("bids")
+      .update({ status: "rejected" })
+      .eq("request_id", request.id)
+      .neq("id", bid.id)
+      .eq("status", "pending");
+
+    if (e2) {
+      console.error("다른 입찰 rejected 처리 실패:", e2);
+      // 치명적이지 않으니 진행
+    }
+
+    // 3. 요청 상태 → matched
+    const { error: e3 } = await supabase
       .from("move_requests")
       .update({
         status: "matched",
@@ -184,12 +209,13 @@ setLoading(false);
       .eq("id", request.id);
 
     setAccepting(null);
-    if (reqError) {
-      toast.error("매칭 실패: " + reqError.message);
+    if (e3) {
+      console.error(e3);
+      toast.error("매칭 실패: " + e3.message);
       return;
     }
 
-    toast.success(`${bid.driver_name} 기사님 선택 완료!`);
+    toast.success(`${bid.driver_name} 기사님 선택 완료! 🎉`);
     setTimeout(() => window.location.reload(), 800);
   };
 
@@ -257,9 +283,13 @@ setLoading(false);
           <div className="flex items-start gap-1.5 text-sm text-gray-700 mb-2">
             <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-mint-600" />
             <div className="flex-1">
-              <div>{request.from_address} ({request.from_floor}층)</div>
+              <div>
+                {request.from_address} ({request.from_floor}층)
+              </div>
               <div className="text-gray-500 text-xs my-0.5">↓</div>
-              <div>{request.to_address} ({request.to_floor}층)</div>
+              <div>
+                {request.to_address} ({request.to_floor}층)
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-1">
@@ -272,7 +302,8 @@ setLoading(false);
             박스 {request.box_count}개
             {request.furniture_items && request.furniture_items.length > 0 && (
               <span className="ml-1 text-gray-500">
-                · {request.furniture_items
+                ·{" "}
+                {request.furniture_items
                   .map((f) => FURNITURE_LABELS[f] ?? f)
                   .join(", ")}
               </span>
@@ -286,13 +317,15 @@ setLoading(false);
             <div className="text-xs text-blue-700 font-semibold mb-2">
               ✓ 선택한 기사님
             </div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100">
                   <UserIcon className="h-4 w-4 text-blue-700" />
                 </div>
                 <div>
-                  <div className="font-bold text-sm">{acceptedBid.driver_name}</div>
+                  <div className="font-bold text-sm">
+                    {acceptedBid.driver_name}
+                  </div>
                   {acceptedBid.driver_phone && (
                     <div className="text-xs text-gray-600">
                       {acceptedBid.driver_phone}
@@ -306,8 +339,17 @@ setLoading(false);
                 </div>
               </div>
             </div>
+            {acceptedBid.driver_phone && (
+              <a
+                href={`tel:${acceptedBid.driver_phone}`}
+                className="flex items-center justify-center gap-1.5 w-full rounded-full bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+              >
+                <Phone className="h-4 w-4" />
+                기사님께 전화하기
+              </a>
+            )}
             {acceptedBid.message && (
-              <p className="text-sm text-gray-700 mt-2 p-2 bg-white rounded-lg">
+              <p className="text-sm text-gray-700 mt-3 p-2 bg-white rounded-lg">
                 {acceptedBid.message}
               </p>
             )}
@@ -341,12 +383,15 @@ setLoading(false);
             {bids.map((bid, idx) => {
               const isAccepted = bid.id === request.selected_bid_id;
               const isLowest = idx === 0 && !isMatched;
+              const isRejected = bid.status === "rejected";
               return (
                 <div
                   key={bid.id}
                   className={`rounded-2xl border p-4 ${
                     isAccepted
                       ? "border-blue-300 bg-blue-50/40"
+                      : isRejected
+                      ? "border-gray-100 bg-gray-50 opacity-60"
                       : "border-gray-100 bg-white"
                   }`}
                 >
@@ -368,10 +413,16 @@ setLoading(false);
                               선택됨
                             </span>
                           )}
+                          {isRejected && (
+                            <span className="inline-block rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
+                              미선택
+                            </span>
+                          )}
                         </div>
                         {bid.estimated_duration_min && (
                           <div className="text-[11px] text-gray-500 mt-0.5">
-                            예상 {Math.floor(bid.estimated_duration_min / 60)}시간{" "}
+                            예상{" "}
+                            {Math.floor(bid.estimated_duration_min / 60)}시간{" "}
                             {bid.estimated_duration_min % 60 > 0 &&
                               `${bid.estimated_duration_min % 60}분`}
                           </div>
@@ -394,7 +445,7 @@ setLoading(false);
                     </p>
                   )}
 
-                  {!isMatched && (
+                  {!isMatched && !isRejected && (
                     <Button
                       onClick={() => handleAccept(bid)}
                       disabled={accepting !== null}
