@@ -180,7 +180,7 @@ export default function CustomerRequestDetailPage() {
 
     const { error: bidError } = await supabase
       .from("bids")
-      .update({ status: "accepted" })
+      .update({ status: "selected" })
       .eq("id", bid.id);
 
     if (bidError) {
