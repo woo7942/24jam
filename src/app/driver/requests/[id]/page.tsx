@@ -45,7 +45,7 @@ interface MoveRequest {
   preferred_date: string;
   time_slot: string;
   is_urgent: boolean;
-  status: "open" | "matched" | "completed" | "cancelled";
+  status: "open" | "matched" | "in_progress" | "completed" | "cancelled" | "expired";
   bid_deadline: string;
 }
 
@@ -114,8 +114,8 @@ export default function DriverRequestDetailPage() {
   const [myBid, setMyBid] = useState<MyBid | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
 
-  // 입찰 폼 상태
   const [price, setPrice] = useState("");
   const [message, setMessage] = useState("");
   const [duration, setDuration] = useState("");
@@ -155,7 +155,6 @@ export default function DriverRequestDetailPage() {
 
       setRequest(req);
 
-      // 내가 이미 입찰했는지 확인
       const { data: bid } = await supabase
         .from("bids")
         .select("*")
@@ -179,7 +178,6 @@ export default function DriverRequestDetailPage() {
   const handleSubmit = async () => {
     if (!user || !request) return;
 
-    // 🔒 매칭/종료 상태 재확인 (서버에서도 RLS로 다시 체크되지만 UX용)
     if (request.status !== "open") {
       toast.error("이미 매칭이 완료되었거나 종료된 요청입니다");
       router.push("/driver/requests");
@@ -210,13 +208,13 @@ export default function DriverRequestDetailPage() {
     const supabase = createClient();
 
     if (myBid) {
-      // 수정
       const { error } = await supabase
         .from("bids")
         .update({
           price: priceNum,
           message: message.trim() || null,
           estimated_duration_min: durationNum,
+          status: "pending", // 철회 후 재입찰 케이스 대비
           updated_at: new Date().toISOString(),
         })
         .eq("id", myBid.id);
@@ -230,7 +228,6 @@ export default function DriverRequestDetailPage() {
       toast.success("입찰이 수정되었습니다");
       router.push("/driver/requests");
     } else {
-      // 신규 등록
       const { error } = await supabase.from("bids").insert({
         request_id: requestId,
         driver_id: user.id,
@@ -251,6 +248,40 @@ export default function DriverRequestDetailPage() {
     }
   };
 
+  // 입찰 철회 (pending 상태)
+  const handleWithdraw = async () => {
+    if (!myBid) return;
+    if (myBid.status !== "pending") {
+      toast.error("이미 처리된 입찰은 철회할 수 없습니다");
+      return;
+    }
+    if (
+      !confirm(
+        "정말 이 입찰을 철회하시겠어요?\n철회 후에는 다시 입찰할 수 있습니다."
+      )
+    ) {
+      return;
+    }
+
+    setWithdrawing(true);
+    const supabase = createClient();
+
+    const { error } = await supabase
+      .from("bids")
+      .update({ status: "withdrawn" })
+      .eq("id", myBid.id);
+
+    setWithdrawing(false);
+    if (error) {
+      console.error(error);
+      toast.error("입찰 철회 실패: " + error.message);
+      return;
+    }
+
+    toast.success("입찰이 철회되었어요");
+    setTimeout(() => router.push("/driver/requests"), 600);
+  };
+
   if (authLoading || loading) {
     return (
       <div className="app-container flex items-center justify-center min-h-screen">
@@ -261,17 +292,26 @@ export default function DriverRequestDetailPage() {
 
   if (!request) return null;
 
-  // 🔒 상태 분기
   const isMatched = request.status === "matched";
   const isCompleted = request.status === "completed";
   const isCancelled = request.status === "cancelled";
+  const isExpired = request.status === "expired";
+  const isInProgress = request.status === "in_progress";
   const isDeadlinePassed =
     new Date(request.bid_deadline).getTime() < Date.now();
-  const canBid = !isMatched && !isCompleted && !isCancelled && !isDeadlinePassed;
+  const canBid =
+    !isMatched &&
+    !isCompleted &&
+    !isCancelled &&
+    !isExpired &&
+    !isInProgress &&
+    !isDeadlinePassed;
 
-  // 내 입찰이 selected/rejected 인지
   const myBidSelected = myBid?.status === "selected";
   const myBidRejected = myBid?.status === "rejected";
+  const myBidWithdrawn = myBid?.status === "withdrawn";
+  const myBidCancelled = myBid?.status === "cancelled";
+  const canWithdraw = myBid?.status === "pending" && canBid;
 
   return (
     <div className="app-container pb-24">
@@ -298,7 +338,19 @@ export default function DriverRequestDetailPage() {
                 선택되지 않음
               </span>
             )}
-            {myBid && !myBidSelected && !myBidRejected && (
+            {myBidWithdrawn && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+                <XCircle className="h-3.5 w-3.5" />
+                철회됨
+              </span>
+            )}
+            {myBidCancelled && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+                <XCircle className="h-3.5 w-3.5" />
+                고객이 취소함
+              </span>
+            )}
+            {myBid && !myBidSelected && !myBidRejected && !myBidWithdrawn && !myBidCancelled && (
               <span className="inline-flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-bold text-mint-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 입찰 완료
@@ -310,7 +362,7 @@ export default function DriverRequestDetailPage() {
               </span>
             )}
           </div>
-          {!isMatched && !isCancelled && !isCompleted && (
+          {!isMatched && !isCancelled && !isCompleted && !isExpired && (
             <span className="flex items-center gap-1 text-xs font-semibold text-orange-600">
               <Clock className="h-3.5 w-3.5" />
               {getRemainingTime(request.bid_deadline)}
@@ -434,9 +486,8 @@ export default function DriverRequestDetailPage() {
           </div>
         )}
 
-        {/* 🔒 상태별 분기 */}
+        {/* 상태별 분기 */}
         {isMatched && myBidSelected ? (
-          // 내가 선택된 경우
           <div className="rounded-2xl border-2 border-mint-300 bg-mint-50 p-5 mt-5 text-center">
             <Handshake className="h-10 w-10 text-mint-600 mx-auto mb-2" />
             <h3 className="font-bold text-mint-900 mb-1">
@@ -453,7 +504,6 @@ export default function DriverRequestDetailPage() {
             </Link>
           </div>
         ) : isMatched ? (
-          // 다른 기사가 선택된 경우
           <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
             <div className="text-3xl mb-2">🤝</div>
             <h3 className="font-bold text-gray-800 mb-1">
@@ -477,12 +527,14 @@ export default function DriverRequestDetailPage() {
               고객이 요청을 취소했습니다.
             </p>
           </div>
-        ) : isCompleted ? (
+        ) : isCompleted || isInProgress ? (
           <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
             <div className="text-3xl mb-2">✅</div>
-            <h3 className="font-bold text-gray-800 mb-1">완료된 요청입니다</h3>
+            <h3 className="font-bold text-gray-800 mb-1">
+              {isCompleted ? "완료된 요청입니다" : "진행 중인 요청입니다"}
+            </h3>
           </div>
-        ) : isDeadlinePassed ? (
+        ) : isExpired || isDeadlinePassed ? (
           <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
             <AlertCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
             <p className="text-sm font-semibold text-gray-700">
@@ -493,12 +545,13 @@ export default function DriverRequestDetailPage() {
             </p>
           </div>
         ) : canBid ? (
-          // 입찰 폼
           <div className="rounded-2xl border-2 border-mint-200 bg-mint-50/50 p-4 mt-5">
             <div className="flex items-center gap-2 mb-4">
               <Truck className="h-5 w-5 text-mint-600" />
               <h2 className="font-bold text-mint-900">
-                {myBid ? "내 입찰 수정" : "견적 제출"}
+                {myBid && myBid.status === "pending"
+                  ? "내 입찰 수정"
+                  : "견적 제출"}
               </h2>
             </div>
 
@@ -549,12 +602,12 @@ export default function DriverRequestDetailPage() {
 
               <Button
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || withdrawing}
                 className="w-full h-12 bg-mint-500 hover:bg-mint-600 text-white font-bold"
               >
                 {submitting ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
-                ) : myBid ? (
+                ) : myBid && myBid.status === "pending" ? (
                   "입찰 수정하기"
                 ) : (
                   "견적 제출하기"
@@ -565,6 +618,26 @@ export default function DriverRequestDetailPage() {
                 고객이 선택하면 알림을 보내드릴게요
               </p>
             </div>
+
+            {/* 입찰 철회 버튼 */}
+            {canWithdraw && (
+              <div className="mt-5 pt-4 border-t border-mint-200">
+                <button
+                  onClick={handleWithdraw}
+                  disabled={submitting || withdrawing}
+                  className="flex items-center justify-center gap-1.5 w-full h-10 rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50"
+                >
+                  {withdrawing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <XCircle className="h-4 w-4" />
+                      입찰 철회하기
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
       </div>

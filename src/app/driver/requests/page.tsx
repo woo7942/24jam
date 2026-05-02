@@ -146,37 +146,50 @@ export default function DriverRequestsPage() {
     loadData();
   }, [user, profile, authLoading, router, loadData]);
 
-  // 🔔 Realtime 구독: 내 입찰이 selected로 바뀌면 토스트 + 목록 새로고침
-  useEffect(() => {
-    if (!user) return;
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`driver-bids-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "bids",
-          filter: `driver_id=eq.${user.id}`,
-        },
-        (payload) => {
-          const newRow = payload.new as { status?: string };
-          if (newRow.status === "selected") {
-            toast.success("🎉 새로운 매칭이 도착했어요!", {
-              description: "고객님이 회원님을 선택했습니다. 매칭 목록을 확인해주세요.",
-              duration: 6000,
-            });
-            loadData();
-          }
+  // 🔔 Realtime 구독: 내 입찰 상태 변화 시 알림
+useEffect(() => {
+  if (!user) return;
+  const supabase = createClient();
+  const channel = supabase
+    .channel(`driver-bids-${user.id}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "bids",
+        filter: `driver_id=eq.${user.id}`,
+      },
+      (payload) => {
+        const newRow = payload.new as { status?: string };
+        if (newRow.status === "selected") {
+          toast.success("🎉 새로운 매칭이 도착했어요!", {
+            description: "고객님이 회원님을 선택했습니다. 매칭 목록을 확인해주세요.",
+            duration: 6000,
+          });
+          loadData();
+        } else if (newRow.status === "rejected") {
+          toast("😢 다른 기사님이 선택되었어요", {
+            description: "다음 기회에 다시 도전해보세요!",
+            duration: 5000,
+          });
+          loadData();
+        } else if (newRow.status === "cancelled") {
+          toast("⚠️ 고객이 요청을 취소했어요", {
+            description: "다른 요청을 확인해보세요.",
+            duration: 5000,
+          });
+          loadData();
         }
-      )
-      .subscribe();
+      }
+    )
+    .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, loadData]);
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [user, loadData]);
+
 
   if (authLoading || loading) {
     return (

@@ -14,6 +14,8 @@ import {
   Inbox,
   User as UserIcon,
   Phone,
+  XCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -35,7 +37,7 @@ interface MoveRequest {
   preferred_date: string;
   time_slot: string;
   is_urgent: boolean;
-  status: "open" | "matched" | "completed" | "cancelled";
+  status: "open" | "matched" | "in_progress" | "completed" | "cancelled" | "expired";
   bid_deadline: string;
   selected_bid_id: string | null;
 }
@@ -93,6 +95,23 @@ function getRemainingTime(deadline: string) {
   return h > 0 ? `${h}시간 ${m}분 남음` : `${m}분 남음`;
 }
 
+// 이사 24시간 전까지만 매칭 취소 가능
+function canCancelMatching(preferredDate: string): {
+  ok: boolean;
+  reason?: string;
+} {
+  const moveTime = new Date(preferredDate + "T00:00:00").getTime();
+  const now = Date.now();
+  const hoursLeft = (moveTime - now) / 3600000;
+  if (hoursLeft < 24) {
+    return {
+      ok: false,
+      reason: `이사 24시간 전부터는 매칭을 취소할 수 없습니다.`,
+    };
+  }
+  return { ok: true };
+}
+
 export default function CustomerRequestDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -103,6 +122,7 @@ export default function CustomerRequestDetailPage() {
   const [bids, setBids] = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -131,7 +151,6 @@ export default function CustomerRequestDetailPage() {
 
       setRequest(req);
 
-      // DB 함수로 입찰 + 기사 정보 한 번에 가져오기
       const { data: bidsData, error: bidsError } = await supabase.rpc(
         "get_bids_for_my_request",
         { p_request_id: requestId }
@@ -173,7 +192,6 @@ export default function CustomerRequestDetailPage() {
     setAccepting(bid.id);
     const supabase = createClient();
 
-    // 1. 선택한 입찰 → selected
     const { error: e1 } = await supabase
       .from("bids")
       .update({ status: "selected" })
@@ -186,7 +204,6 @@ export default function CustomerRequestDetailPage() {
       return;
     }
 
-    // 2. 같은 요청의 다른 입찰들 → rejected (Realtime 알림용)
     const { error: e2 } = await supabase
       .from("bids")
       .update({ status: "rejected" })
@@ -196,10 +213,8 @@ export default function CustomerRequestDetailPage() {
 
     if (e2) {
       console.error("다른 입찰 rejected 처리 실패:", e2);
-      // 치명적이지 않으니 진행
     }
 
-    // 3. 요청 상태 → matched
     const { error: e3 } = await supabase
       .from("move_requests")
       .update({
@@ -219,6 +234,105 @@ export default function CustomerRequestDetailPage() {
     setTimeout(() => window.location.reload(), 800);
   };
 
+  // 요청 취소 (open 상태)
+  const handleCancelRequest = async () => {
+    if (!request) return;
+    if (request.status !== "open") {
+      toast.error("이미 매칭되었거나 종료된 요청입니다");
+      return;
+    }
+    if (
+      !confirm(
+        "정말 이 견적 요청을 취소하시겠어요?\n입찰한 기사님들에게 자동으로 알림이 갑니다."
+      )
+    ) {
+      return;
+    }
+
+    setCancelling(true);
+    const supabase = createClient();
+
+    // 1. 모든 pending 입찰 → cancelled
+    const { error: e1 } = await supabase
+      .from("bids")
+      .update({ status: "cancelled" })
+      .eq("request_id", request.id)
+      .eq("status", "pending");
+
+    if (e1) {
+      console.error("입찰 취소 처리 실패:", e1);
+      // 치명적이지 않으니 진행
+    }
+
+    // 2. 요청 상태 → cancelled
+    const { error: e2 } = await supabase
+      .from("move_requests")
+      .update({ status: "cancelled" })
+      .eq("id", request.id);
+
+    setCancelling(false);
+    if (e2) {
+      console.error(e2);
+      toast.error("요청 취소 실패: " + e2.message);
+      return;
+    }
+
+    toast.success("견적 요청이 취소되었어요");
+    setTimeout(() => router.push("/my/requests"), 600);
+  };
+
+  // 매칭 취소 (matched 상태, 이사 24h 전까지)
+  const handleCancelMatching = async () => {
+    if (!request) return;
+    if (request.status !== "matched") {
+      toast.error("매칭된 요청만 취소할 수 있습니다");
+      return;
+    }
+    const check = canCancelMatching(request.preferred_date);
+    if (!check.ok) {
+      toast.error(check.reason || "지금은 취소할 수 없습니다");
+      return;
+    }
+    if (
+      !confirm(
+        "⚠️ 정말 매칭을 취소하시겠어요?\n선택한 기사님께 자동으로 알림이 가며,\n이 요청은 종료 처리됩니다.\n\n계속하시려면 확인을 누르세요."
+      )
+    ) {
+      return;
+    }
+
+    setCancelling(true);
+    const supabase = createClient();
+
+    // 1. 선택된 bid → cancelled
+    if (request.selected_bid_id) {
+      const { error: e1 } = await supabase
+        .from("bids")
+        .update({ status: "cancelled" })
+        .eq("id", request.selected_bid_id);
+
+      if (e1) {
+        console.error("선택된 입찰 cancelled 실패:", e1);
+      }
+    }
+
+    // 2. 요청 상태 → cancelled
+    const { error: e2 } = await supabase
+      .from("move_requests")
+      .update({ status: "cancelled" })
+      .eq("id", request.id);
+
+    setCancelling(false);
+    if (e2) {
+      console.error(e2);
+      toast.error("매칭 취소 실패: " + e2.message);
+      return;
+    }
+
+    toast.success("매칭이 취소되었어요");
+    setTimeout(() => router.push("/my/requests"), 600);
+  };
+
   if (authLoading || loading) {
     return (
       <div className="app-container flex items-center justify-center min-h-screen">
@@ -229,8 +343,11 @@ export default function CustomerRequestDetailPage() {
 
   if (!request) return null;
 
+  const isOpen = request.status === "open";
   const isMatched = request.status === "matched";
+  const isCancelled = request.status === "cancelled";
   const acceptedBid = bids.find((b) => b.id === request.selected_bid_id);
+  const cancelMatchingCheck = canCancelMatching(request.preferred_date);
 
   return (
     <div className="app-container pb-10">
@@ -249,12 +366,17 @@ export default function CustomerRequestDetailPage() {
               <CheckCircle2 className="h-3.5 w-3.5" />
               매칭 완료
             </span>
+          ) : isCancelled ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
+              <XCircle className="h-3.5 w-3.5" />
+              취소됨
+            </span>
           ) : (
             <span className="inline-block rounded-full bg-mint-50 px-2.5 py-1 text-xs font-bold text-mint-700">
               입찰 받는 중
             </span>
           )}
-          {!isMatched && (
+          {isOpen && (
             <span className="flex items-center gap-1 text-xs font-semibold text-orange-600">
               <Clock className="h-3.5 w-3.5" />
               {getRemainingTime(request.bid_deadline)}
@@ -356,111 +478,172 @@ export default function CustomerRequestDetailPage() {
           </div>
         )}
 
-        {/* 입찰 목록 */}
-        <div className="mt-5 mb-3 flex items-center justify-between">
-          <h2 className="font-bold text-base">
-            받은 견적 <span className="text-mint-600">{bids.length}</span>건
-          </h2>
-          {!isMatched && bids.length > 0 && (
-            <span className="text-xs text-gray-500">가격순 정렬</span>
-          )}
-        </div>
-
-        {bids.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 mb-4">
-              <Inbox className="h-8 w-8 text-gray-400" />
-            </div>
-            <p className="text-sm font-bold text-gray-900 mb-1">
-              아직 받은 견적이 없어요
+        {/* 취소 안내 (cancelled 상태) */}
+        {isCancelled && (
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 mb-4 text-center">
+            <XCircle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-700">
+              이 요청은 취소되었습니다
             </p>
-            <p className="text-xs text-gray-500">
-              평균 5~10명의 기사님이 입찰합니다
+            <p className="text-xs text-gray-500 mt-1">
+              새로 견적을 받으시려면 요청을 다시 등록해주세요
+            </p>
+            <Link
+              href="/request"
+              className="inline-block mt-3 rounded-full bg-mint-600 px-4 py-2 text-sm font-bold text-white hover:bg-mint-700"
+            >
+              새 견적 요청하기
+            </Link>
+          </div>
+        )}
+
+        {/* 입찰 목록 (open 상태일 때만) */}
+        {isOpen && (
+          <>
+            <div className="mt-5 mb-3 flex items-center justify-between">
+              <h2 className="font-bold text-base">
+                받은 견적 <span className="text-mint-600">{bids.length}</span>건
+              </h2>
+              {bids.length > 0 && (
+                <span className="text-xs text-gray-500">가격순 정렬</span>
+              )}
+            </div>
+
+            {bids.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 mb-4">
+                  <Inbox className="h-8 w-8 text-gray-400" />
+                </div>
+                <p className="text-sm font-bold text-gray-900 mb-1">
+                  아직 받은 견적이 없어요
+                </p>
+                <p className="text-xs text-gray-500">
+                  평균 5~10명의 기사님이 입찰합니다
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {bids.map((bid, idx) => {
+                  const isLowest = idx === 0;
+                  return (
+                    <div
+                      key={bid.id}
+                      className="rounded-2xl border border-gray-100 bg-white p-4"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-mint-100">
+                            <UserIcon className="h-4 w-4 text-mint-700" />
+                          </div>
+                          <div>
+                            <div className="font-bold text-sm flex items-center gap-1.5">
+                              {bid.driver_name}
+                              {isLowest && (
+                                <span className="inline-block rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">
+                                  최저가
+                                </span>
+                              )}
+                            </div>
+                            {bid.estimated_duration_min && (
+                              <div className="text-[11px] text-gray-500 mt-0.5">
+                                예상{" "}
+                                {Math.floor(bid.estimated_duration_min / 60)}시간{" "}
+                                {bid.estimated_duration_min % 60 > 0 &&
+                                  `${bid.estimated_duration_min % 60}분`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-gray-900">
+                            {bid.price.toLocaleString("ko-KR")}
+                            <span className="text-xs font-medium text-gray-500 ml-0.5">
+                              원
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {bid.message && (
+                        <p className="text-sm text-gray-700 mb-3 p-2.5 bg-gray-50 rounded-lg whitespace-pre-wrap">
+                          {bid.message}
+                        </p>
+                      )}
+
+                      <Button
+                        onClick={() => handleAccept(bid)}
+                        disabled={accepting !== null || cancelling}
+                        className="w-full h-11 bg-mint-500 hover:bg-mint-600 text-white font-bold"
+                      >
+                        {accepting === bid.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "이 기사님 선택하기"
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 취소 버튼 영역 */}
+        {isOpen && (
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <button
+              onClick={handleCancelRequest}
+              disabled={cancelling}
+              className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50"
+            >
+              {cancelling ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4" />
+                  견적 요청 취소하기
+                </>
+              )}
+            </button>
+            <p className="mt-2 text-[11px] text-gray-500 text-center">
+              입찰한 기사님들에게 자동으로 취소 알림이 갑니다
             </p>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {bids.map((bid, idx) => {
-              const isAccepted = bid.id === request.selected_bid_id;
-              const isLowest = idx === 0 && !isMatched;
-              const isRejected = bid.status === "rejected";
-              return (
-                <div
-                  key={bid.id}
-                  className={`rounded-2xl border p-4 ${
-                    isAccepted
-                      ? "border-blue-300 bg-blue-50/40"
-                      : isRejected
-                      ? "border-gray-100 bg-gray-50 opacity-60"
-                      : "border-gray-100 bg-white"
-                  }`}
+        )}
+
+        {isMatched && (
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            {cancelMatchingCheck.ok ? (
+              <>
+                <button
+                  onClick={handleCancelMatching}
+                  disabled={cancelling}
+                  className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50"
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-mint-100">
-                        <UserIcon className="h-4 w-4 text-mint-700" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-sm flex items-center gap-1.5">
-                          {bid.driver_name}
-                          {isLowest && (
-                            <span className="inline-block rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">
-                              최저가
-                            </span>
-                          )}
-                          {isAccepted && (
-                            <span className="inline-block rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
-                              선택됨
-                            </span>
-                          )}
-                          {isRejected && (
-                            <span className="inline-block rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
-                              미선택
-                            </span>
-                          )}
-                        </div>
-                        {bid.estimated_duration_min && (
-                          <div className="text-[11px] text-gray-500 mt-0.5">
-                            예상{" "}
-                            {Math.floor(bid.estimated_duration_min / 60)}시간{" "}
-                            {bid.estimated_duration_min % 60 > 0 &&
-                              `${bid.estimated_duration_min % 60}분`}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-gray-900">
-                        {bid.price.toLocaleString("ko-KR")}
-                        <span className="text-xs font-medium text-gray-500 ml-0.5">
-                          원
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {bid.message && (
-                    <p className="text-sm text-gray-700 mb-3 p-2.5 bg-gray-50 rounded-lg whitespace-pre-wrap">
-                      {bid.message}
-                    </p>
+                  {cancelling ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-4 w-4" />
+                      매칭 취소하기
+                    </>
                   )}
-
-                  {!isMatched && !isRejected && (
-                    <Button
-                      onClick={() => handleAccept(bid)}
-                      disabled={accepting !== null}
-                      className="w-full h-11 bg-mint-500 hover:bg-mint-600 text-white font-bold"
-                    >
-                      {accepting === bid.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        "이 기사님 선택하기"
-                      )}
-                    </Button>
-                  )}
-                </div>
-              );
-            })}
+                </button>
+                <p className="mt-2 text-[11px] text-gray-500 text-center">
+                  이사 24시간 전까지만 취소 가능합니다
+                </p>
+              </>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-center">
+                <p className="text-xs text-gray-600">
+                  ⏰ 이사 24시간 전부터는 매칭을 취소할 수 없습니다
+                </p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  부득이한 사정이 있다면 기사님께 직접 연락해주세요
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
