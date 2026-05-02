@@ -13,10 +13,10 @@ export function Header() {
   const router = useRouter();
   const { user, profile, loading } = useAuth();
   const [matchedCount, setMatchedCount] = useState(0); // 기사: 매칭된 입찰 수
-  const [openRequestCount, setOpenRequestCount] = useState(0); // 기사: 입찰 가능한 새 요청 수
+  const [openRequestCount, setOpenRequestCount] = useState(0); // 기사: 새 요청 수
   const [bidReceivedCount, setBidReceivedCount] = useState(0); // 고객: 입찰 받은 요청 수
 
-  // 기사: 매칭된 입찰(selected) + 입찰 가능한 요청 카운트
+  // 기사 카운트 + Realtime
   useEffect(() => {
     if (!user || !profile || profile.role !== "driver") {
       setMatchedCount(0);
@@ -27,7 +27,6 @@ export function Header() {
     const supabase = createClient();
 
     const fetchDriverCounts = async () => {
-      // 1. 매칭된 입찰 수
       const { count: matched } = await supabase
         .from("bids")
         .select("id", { count: "exact", head: true })
@@ -35,7 +34,6 @@ export function Header() {
         .eq("status", "selected");
       setMatchedCount(matched ?? 0);
 
-      // 2. 입찰 가능한 open 요청 수 (마감 안 지난 것)
       const { count: openReqs } = await supabase
         .from("move_requests")
         .select("id", { count: "exact", head: true })
@@ -48,7 +46,6 @@ export function Header() {
 
     const channel = supabase
       .channel(`header-driver-${user.id}`)
-      // 내 입찰 변화 (매칭/거절/취소)
       .on(
         "postgres_changes",
         {
@@ -59,7 +56,6 @@ export function Header() {
         },
         () => fetchDriverCounts()
       )
-      // 새 요청 등록 시 토스트 + 카운트 갱신
       .on(
         "postgres_changes",
         {
@@ -82,7 +78,6 @@ export function Header() {
           }
         }
       )
-      // 요청 상태 변화 (매칭/취소/만료)
       .on(
         "postgres_changes",
         {
@@ -99,7 +94,7 @@ export function Header() {
     };
   }, [user, profile, router]);
 
-  // 고객: 입찰 받은 진행 중 요청 카운트
+  // 고객 카운트 + Realtime
   useEffect(() => {
     if (!user || !profile || profile.role !== "customer") {
       setBidReceivedCount(0);
@@ -182,35 +177,9 @@ export function Header() {
     router.refresh();
   };
 
-  // 기사 버튼 우선순위: 매칭됨 > 새 요청 > 평소
-  const driverButton = () => {
-    if (matchedCount > 0) {
-      return {
-        className:
-          "flex items-center gap-1 rounded-full bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-red-600 transition animate-wiggle",
-        icon: <Sparkles className="h-3.5 w-3.5" />,
-        text: `🎉 매칭 ${matchedCount}건!`,
-      };
-    }
-    if (openRequestCount > 0) {
-      return {
-        className:
-          "flex items-center gap-1 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-orange-600 transition animate-wiggle",
-        icon: <Package className="h-3.5 w-3.5" />,
-        text: `📦 새 요청 ${openRequestCount}건!`,
-      };
-    }
-    return {
-      className:
-        "flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-semibold text-mint-700 hover:bg-mint-100 transition",
-      icon: <FileText className="h-3.5 w-3.5" />,
-      text: "요청 보기",
-    };
-  };
-
   return (
-    <header className="sticky top-0 z-50 flex h-14 items-center justify-between bg-white/80 px-5 backdrop-blur-md">
-      <Link href="/" className="flex items-center gap-2">
+    <header className="sticky top-0 z-50 flex h-14 items-center justify-between bg-white/80 px-3 backdrop-blur-md">
+      <Link href="/" className="flex items-center gap-1.5 shrink-0">
         <div className="w-8 h-8 rounded-lg bg-mint-500 flex items-center justify-center text-white font-bold">
           잼
         </div>
@@ -220,21 +189,21 @@ export function Header() {
       {loading ? (
         <div className="h-5 w-16 bg-gray-100 rounded animate-pulse" />
       ) : profile ? (
-        <div className="flex items-center gap-2">
-          {/* 고객: 내 견적 버튼 */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          {/* 고객 알림 버튼 */}
           {profile.role === "customer" && (
             <Link
               href="/my/requests"
               className={
                 bidReceivedCount > 0
-                  ? "flex items-center gap-1 rounded-full bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-red-600 transition animate-wiggle"
-                  : "flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-semibold text-mint-700 hover:bg-mint-100 transition"
+                  ? "flex items-center gap-1 rounded-full bg-red-500 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-md hover:bg-red-600 transition animate-wiggle whitespace-nowrap"
+                  : "flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-semibold text-mint-700 hover:bg-mint-100 transition whitespace-nowrap"
               }
             >
               {bidReceivedCount > 0 ? (
                 <>
                   <Inbox className="h-3.5 w-3.5" />
-                  견적 {bidReceivedCount}건 도착!
+                  견적 {bidReceivedCount}건!
                 </>
               ) : (
                 <>
@@ -245,32 +214,65 @@ export function Header() {
             </Link>
           )}
 
-          {/* 기사: 요청 보기 버튼 (3단계 우선순위) */}
-          {profile.role === "driver" &&
-            (() => {
-              const btn = driverButton();
-              return (
-                <Link href="/driver/requests" className={btn.className}>
-                  {btn.icon}
-                  {btn.text}
-                </Link>
-              );
-            })()}
+          {/* 기사: 매칭 버튼 (있을 때만) */}
+          {profile.role === "driver" && matchedCount > 0 && (
+            <Link
+              href="/driver/requests"
+              className="flex items-center gap-1 rounded-full bg-red-500 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-md hover:bg-red-600 transition animate-wiggle whitespace-nowrap"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              매칭 {matchedCount}!
+            </Link>
+          )}
 
+          {/* 기사: 새 요청 버튼 (있을 때만) */}
+          {profile.role === "driver" && openRequestCount > 0 && (
+            <Link
+              href="/driver/requests"
+              className="flex items-center gap-1 rounded-full bg-orange-500 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-md hover:bg-orange-600 transition animate-wiggle whitespace-nowrap"
+            >
+              <Package className="h-3.5 w-3.5" />
+              요청 {openRequestCount}!
+            </Link>
+          )}
+
+          {/* 기사: 둘 다 없을 때 평소 버튼 */}
+          {profile.role === "driver" &&
+            matchedCount === 0 &&
+            openRequestCount === 0 && (
+              <Link
+                href="/driver/requests"
+                className="flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-semibold text-mint-700 hover:bg-mint-100 transition whitespace-nowrap"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                요청 보기
+              </Link>
+            )}
+
+          {/* 사용자 이름 (모바일에서는 숨김) */}
           <Link
             href="/my/requests"
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-700"
+            className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-gray-700"
           >
             <UserIcon className="h-4 w-4" />
-            {profile.name}
+            <span className="max-w-[60px] truncate">{profile.name}</span>
             {profile.role === "driver" && (
-              <span className="text-xs text-mint-600 font-bold ml-1">기사</span>
+              <span className="text-[10px] text-mint-600 font-bold">기사</span>
             )}
+          </Link>
+
+          {/* 모바일: 사용자 아이콘만 */}
+          <Link
+            href="/my/requests"
+            className="sm:hidden flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+            title={profile.name}
+          >
+            <UserIcon className="h-4 w-4" />
           </Link>
 
           <button
             onClick={handleLogout}
-            className="text-gray-400 hover:text-gray-600"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100"
             title="로그아웃"
           >
             <LogOut className="h-4 w-4" />
