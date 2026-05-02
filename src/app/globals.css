@@ -16,6 +16,17 @@
 
   --font-sans: "Pretendard", system-ui, sans-serif;
   --radius: 0.75rem;
+
+  --animate-wiggle: wiggle 0.6s ease-in-out infinite;
+
+  @keyframes wiggle {
+    0%, 100% {
+      transform: rotate(-2deg);
+    }
+    50% {
+      transform: rotate(2deg);
+    }
+  }
 }
 
 :root {
