@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import { MapPin, Package, Calendar, FileText } from "lucide-react";
+import { MapPin, Package, Calendar, FileText, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRequestStore } from "@/stores/requestStore";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +16,25 @@ const MOVE_TYPE_LABELS: Record<string, string> = {
   small_office: "소형 사무실",
 };
 
+const SERVICE_TYPE_LABELS: Record<string, string> = {
+  general: "일반 이사",
+  half_packing: "반포장 이사",
+  full_packing: "포장 이사",
+};
+
+const FURNITURE_LABELS: Record<string, string> = {
+  bed: "침대",
+  wardrobe: "옷장",
+  desk: "책상",
+  chair: "의자",
+  fridge: "냉장고",
+  washer: "세탁기",
+  tv: "TV",
+  sofa: "소파",
+  table: "식탁",
+  bookshelf: "책장",
+};
+
 const TIME_SLOT_LABELS: Record<string, string> = {
   morning: "오전 (08:00~12:00)",
   afternoon: "오후 (12:00~17:00)",
@@ -23,46 +42,11 @@ const TIME_SLOT_LABELS: Record<string, string> = {
   any: "아무때나",
 };
 
-// 간단한 예상 견적 계산
-function estimatePrice(store: ReturnType<typeof useRequestStore.getState>): {
-  min: number;
-  max: number;
-} {
-  let basePrice = 100000;
-
-  // 이사 유형
-  if (store.moveType === "one_room") basePrice = 120000;
-  else if (store.moveType === "one_half_room") basePrice = 180000;
-  else if (store.moveType === "two_room") basePrice = 250000;
-  else if (store.moveType === "small_office") basePrice = 200000;
-
-  // 층수 (엘리베이터 없으면 층당 1만원 추가)
-  if (!store.fromHasElevator) basePrice += store.fromFloor * 10000;
-  if (!store.toHasElevator) basePrice += store.toFloor * 10000;
-
-  // 사다리차 필요 시
-  if (store.fromNeedsLadder) basePrice += 50000;
-  if (store.toNeedsLadder) basePrice += 50000;
-
-  // 박스 개수
-  basePrice += store.boxCount * 2000;
-
-  // 긴급
-  if (store.isUrgent) basePrice = Math.round(basePrice * 1.2);
-
-  return {
-    min: Math.round(basePrice * 0.85),
-    max: Math.round(basePrice * 1.15),
-  };
-}
-
 export default function Step4ConfirmPage() {
   const router = useRouter();
   const store = useRequestStore();
   const { user, profile } = useAuth();
   const [submitting, setSubmitting] = useState(false);
-
-  const estimate = estimatePrice(store);
 
   const handleSubmit = async () => {
     if (!user || !profile) {
@@ -92,6 +76,7 @@ export default function Step4ConfirmPage() {
         to_floor: store.toFloor,
         to_has_elevator: store.toHasElevator,
         to_needs_ladder: store.toNeedsLadder,
+        service_type: store.serviceType,
         move_type: store.moveType,
         furniture_items: store.furnitureItems,
         box_count: store.boxCount,
@@ -99,8 +84,6 @@ export default function Step4ConfirmPage() {
         preferred_date: store.preferredDate,
         time_slot: store.timeSlot,
         is_urgent: store.isUrgent,
-        estimated_price_min: estimate.min,
-        estimated_price_max: estimate.max,
         status: "open",
         bid_deadline: bidDeadline,
       })
@@ -115,9 +98,9 @@ export default function Step4ConfirmPage() {
       return;
     }
 
-    toast.success("견적 요청이 전송됐어요! 기사님들의 입찰을 기다려주세요");
+    toast.success("견적 요청이 전송됐어요!");
     store.reset();
-    router.push("/");
+    router.push(`/request/complete?id=${data.id}`);
   };
 
   return (
@@ -127,14 +110,54 @@ export default function Step4ConfirmPage() {
         <p className="text-sm text-gray-500">입력하신 내용을 확인해주세요</p>
       </div>
 
-      {/* 예상 견적 */}
+      {/* 안내 박스 (기존 가격 박스 대체) */}
       <div className="rounded-2xl bg-gradient-to-br from-mint-500 to-mint-600 p-6 text-white">
-        <div className="text-xs opacity-80 mb-1">예상 견적 범위</div>
-        <div className="text-3xl font-bold">
-          {estimate.min.toLocaleString()} ~ {estimate.max.toLocaleString()}원
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="h-5 w-5" />
+          <span className="text-sm font-semibold">기사님들이 직접 견적을 보내드려요</span>
         </div>
-        <div className="text-xs opacity-80 mt-2">
-          기사님들이 더 좋은 가격으로 입찰할 수 있어요
+        <div className="text-lg font-bold leading-snug mb-3">
+          요청을 등록하면<br />2시간 동안 기사님들이 입찰해요
+        </div>
+        <div className="flex items-center gap-2 text-xs opacity-90">
+          <Users className="h-4 w-4" />
+          <span>평균 5~10명의 기사님이 견적을 보내드려요</span>
+        </div>
+      </div>
+
+      {/* 이사 종류 + 공간 */}
+      <div className="rounded-2xl border border-gray-100 p-5 space-y-3">
+        <div className="flex items-center gap-2 text-gray-700">
+          <Package className="h-4 w-4 text-mint-600" />
+          <span className="font-bold text-sm">이사 정보</span>
+        </div>
+        <div className="text-sm space-y-1.5">
+          <div>
+            <span className="text-gray-400">종류</span>{" "}
+            <span className="text-gray-900 font-medium">
+              {store.serviceType ? SERVICE_TYPE_LABELS[store.serviceType] : "-"}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-400">공간</span>{" "}
+            <span className="text-gray-900">
+              {store.moveType ? MOVE_TYPE_LABELS[store.moveType] : "-"}
+            </span>
+          </div>
+          {store.furnitureItems.length > 0 && (
+            <div>
+              <span className="text-gray-400">가구</span>{" "}
+              <span className="text-gray-900">
+                {store.furnitureItems
+                  .map((f) => FURNITURE_LABELS[f] ?? f)
+                  .join(", ")}
+              </span>
+            </div>
+          )}
+          <div>
+            <span className="text-gray-400">박스</span>{" "}
+            <span className="text-gray-900">{store.boxCount}개</span>
+          </div>
         </div>
       </div>
 
@@ -166,34 +189,6 @@ export default function Step4ConfirmPage() {
               {store.toHasElevator ? "·EV" : ""}
               {store.toNeedsLadder ? "·사다리차" : ""})
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 짐 정보 */}
-      <div className="rounded-2xl border border-gray-100 p-5 space-y-3">
-        <div className="flex items-center gap-2 text-gray-700">
-          <Package className="h-4 w-4 text-mint-600" />
-          <span className="font-bold text-sm">짐 정보</span>
-        </div>
-        <div className="text-sm space-y-1.5">
-          <div>
-            <span className="text-gray-400">유형</span>{" "}
-            <span className="text-gray-900">
-              {store.moveType ? MOVE_TYPE_LABELS[store.moveType] : "-"}
-            </span>
-          </div>
-          {store.furnitureItems.length > 0 && (
-            <div>
-              <span className="text-gray-400">가구</span>{" "}
-              <span className="text-gray-900">
-                {store.furnitureItems.map((f) => f.name).join(", ")}
-              </span>
-            </div>
-          )}
-          <div>
-            <span className="text-gray-400">박스</span>{" "}
-            <span className="text-gray-900">{store.boxCount}개</span>
           </div>
         </div>
       </div>
@@ -239,8 +234,12 @@ export default function Step4ConfirmPage() {
         disabled={submitting}
         className="w-full h-14 bg-mint-500 hover:bg-mint-600 text-white text-base font-bold rounded-xl disabled:opacity-50"
       >
-        {submitting ? "전송 중..." : "기사님께 견적 요청 보내기"}
+        {submitting ? "전송 중..." : "견적 받기 시작"}
       </Button>
+
+      <p className="text-center text-xs text-gray-400 -mt-2">
+        등록 즉시 기사님들에게 알림이 갑니다
+      </p>
     </div>
   );
 }

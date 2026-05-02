@@ -2,12 +2,19 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type MoveType = "one_room" | "one_half_room" | "two_room" | "small_office";
+export type ServiceType = "general" | "half_packing" | "full_packing";
 export type TimeSlot = "morning" | "afternoon" | "evening" | "any";
-
-export interface FurnitureItem {
-  name: string;
-  count: number;
-}
+export type FurnitureItem =
+  | "bed"
+  | "wardrobe"
+  | "desk"
+  | "chair"
+  | "fridge"
+  | "washer"
+  | "tv"
+  | "sofa"
+  | "table"
+  | "bookshelf";
 
 interface RequestState {
   // Step 1: 주소 정보
@@ -24,6 +31,7 @@ interface RequestState {
 
   // Step 2: 짐 정보
   moveType: MoveType | null;
+  serviceType: ServiceType | null;
   furnitureItems: FurnitureItem[];
   boxCount: number;
   notes: string;
@@ -53,6 +61,7 @@ const initialState = {
   toNeedsLadder: false,
 
   moveType: null as MoveType | null,
+  serviceType: null as ServiceType | null,
   furnitureItems: [] as FurnitureItem[],
   boxCount: 0,
   notes: "",
