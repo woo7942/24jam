@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, FileText, Sparkles, Inbox } from "lucide-react";
+import { LogOut, User as UserIcon, FileText, Sparkles, Inbox, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { signOut } from "@/lib/supabase/auth";
@@ -13,35 +13,42 @@ export function Header() {
   const router = useRouter();
   const { user, profile, loading } = useAuth();
   const [matchedCount, setMatchedCount] = useState(0); // 기사: 매칭된 입찰 수
+  const [openRequestCount, setOpenRequestCount] = useState(0); // 기사: 입찰 가능한 새 요청 수
   const [bidReceivedCount, setBidReceivedCount] = useState(0); // 고객: 입찰 받은 요청 수
 
-  // 기사: 매칭된 입찰(selected) 카운트
+  // 기사: 매칭된 입찰(selected) + 입찰 가능한 요청 카운트
   useEffect(() => {
     if (!user || !profile || profile.role !== "driver") {
       setMatchedCount(0);
+      setOpenRequestCount(0);
       return;
     }
 
     const supabase = createClient();
 
-    const fetchMatchedCount = async () => {
-      const { count, error } = await supabase
+    const fetchDriverCounts = async () => {
+      // 1. 매칭된 입찰 수
+      const { count: matched } = await supabase
         .from("bids")
         .select("id", { count: "exact", head: true })
         .eq("driver_id", user.id)
         .eq("status", "selected");
+      setMatchedCount(matched ?? 0);
 
-      if (error) {
-        console.error("매칭 카운트 조회 실패:", error);
-        return;
-      }
-      setMatchedCount(count ?? 0);
+      // 2. 입찰 가능한 open 요청 수 (마감 안 지난 것)
+      const { count: openReqs } = await supabase
+        .from("move_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "open")
+        .gt("bid_deadline", new Date().toISOString());
+      setOpenRequestCount(openReqs ?? 0);
     };
 
-    fetchMatchedCount();
+    fetchDriverCounts();
 
     const channel = supabase
-      .channel(`header-driver-bids-${user.id}`)
+      .channel(`header-driver-${user.id}`)
+      // 내 입찰 변화 (매칭/거절/취소)
       .on(
         "postgres_changes",
         {
@@ -50,14 +57,47 @@ export function Header() {
           table: "bids",
           filter: `driver_id=eq.${user.id}`,
         },
-        () => fetchMatchedCount()
+        () => fetchDriverCounts()
+      )
+      // 새 요청 등록 시 토스트 + 카운트 갱신
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "move_requests",
+        },
+        (payload) => {
+          const newReq = payload.new as { status?: string };
+          if (newReq.status === "open") {
+            toast.success("📦 새로운 견적 요청이 도착했어요!", {
+              description: "지금 바로 확인해보세요",
+              duration: 5000,
+              action: {
+                label: "보러가기",
+                onClick: () => router.push("/driver/requests"),
+              },
+            });
+            fetchDriverCounts();
+          }
+        }
+      )
+      // 요청 상태 변화 (매칭/취소/만료)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "move_requests",
+        },
+        () => fetchDriverCounts()
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, profile]);
+  }, [user, profile, router]);
 
   // 고객: 입찰 받은 진행 중 요청 카운트
   useEffect(() => {
@@ -69,7 +109,6 @@ export function Header() {
     const supabase = createClient();
 
     const fetchBidReceivedCount = async () => {
-      // 1) 내 open 요청 ID 조회
       const { data: openReqs, error: e1 } = await supabase
         .from("move_requests")
         .select("id")
@@ -87,7 +126,6 @@ export function Header() {
         return;
       }
 
-      // 2) 그 요청들에 들어온 pending 입찰의 request_id 목록 가져오기
       const { data: bids, error: e2 } = await supabase
         .from("bids")
         .select("request_id")
@@ -99,16 +137,14 @@ export function Header() {
         return;
       }
 
-      // 3) 입찰이 1개 이상 있는 요청 개수 (중복 제거)
       const uniqueReqs = new Set((bids || []).map((b) => b.request_id));
       setBidReceivedCount(uniqueReqs.size);
     };
 
     fetchBidReceivedCount();
 
-    // Realtime: 내 요청에 입찰이 추가/삭제/변경되면 다시 조회
     const channel = supabase
-      .channel(`header-customer-bids-${user.id}`)
+      .channel(`header-customer-${user.id}`)
       .on(
         "postgres_changes",
         {
@@ -146,6 +182,32 @@ export function Header() {
     router.refresh();
   };
 
+  // 기사 버튼 우선순위: 매칭됨 > 새 요청 > 평소
+  const driverButton = () => {
+    if (matchedCount > 0) {
+      return {
+        className:
+          "flex items-center gap-1 rounded-full bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-red-600 transition animate-wiggle",
+        icon: <Sparkles className="h-3.5 w-3.5" />,
+        text: `🎉 매칭 ${matchedCount}건!`,
+      };
+    }
+    if (openRequestCount > 0) {
+      return {
+        className:
+          "flex items-center gap-1 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-orange-600 transition animate-wiggle",
+        icon: <Package className="h-3.5 w-3.5" />,
+        text: `📦 새 요청 ${openRequestCount}건!`,
+      };
+    }
+    return {
+      className:
+        "flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-semibold text-mint-700 hover:bg-mint-100 transition",
+      icon: <FileText className="h-3.5 w-3.5" />,
+      text: "요청 보기",
+    };
+  };
+
   return (
     <header className="sticky top-0 z-50 flex h-14 items-center justify-between bg-white/80 px-5 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-2">
@@ -159,7 +221,7 @@ export function Header() {
         <div className="h-5 w-16 bg-gray-100 rounded animate-pulse" />
       ) : profile ? (
         <div className="flex items-center gap-2">
-          {/* 고객: 내 견적 버튼 — 입찰 받았으면 빨간 강조 */}
+          {/* 고객: 내 견적 버튼 */}
           {profile.role === "customer" && (
             <Link
               href="/my/requests"
@@ -183,29 +245,17 @@ export function Header() {
             </Link>
           )}
 
-          {/* 기사: 요청 보기 버튼 — 매칭됐으면 빨간 강조 */}
-          {profile.role === "driver" && (
-            <Link
-              href="/driver/requests"
-              className={
-                matchedCount > 0
-                  ? "flex items-center gap-1 rounded-full bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-red-600 transition animate-wiggle"
-                  : "flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-semibold text-mint-700 hover:bg-mint-100 transition"
-              }
-            >
-              {matchedCount > 0 ? (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  🎉 매칭 {matchedCount}건!
-                </>
-              ) : (
-                <>
-                  <FileText className="h-3.5 w-3.5" />
-                  요청 보기
-                </>
-              )}
-            </Link>
-          )}
+          {/* 기사: 요청 보기 버튼 (3단계 우선순위) */}
+          {profile.role === "driver" &&
+            (() => {
+              const btn = driverButton();
+              return (
+                <Link href="/driver/requests" className={btn.className}>
+                  {btn.icon}
+                  {btn.text}
+                </Link>
+              );
+            })()}
 
           <Link
             href="/my/requests"
