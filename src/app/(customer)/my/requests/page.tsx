@@ -12,6 +12,8 @@ import {
   ChevronRight,
   Loader2,
   Inbox,
+  CheckCircle2,
+  User as UserIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,7 +32,10 @@ interface MoveRequest {
   status: "open" | "matched" | "completed" | "cancelled";
   bid_deadline: string;
   created_at: string;
+  selected_bid_id: string | null;
   bid_count?: number;
+  selected_driver_name?: string | null;
+  selected_price?: number | null;
 }
 
 const SERVICE_TYPE_LABELS: Record<string, string> = {
@@ -50,8 +55,8 @@ const STATUS_CONFIG: Record<
   string,
   { label: string; color: string; bg: string }
 > = {
-  open: { label: "입찰 중", color: "text-mint-700", bg: "bg-mint-50" },
-  matched: { label: "매칭 완료", color: "text-blue-700", bg: "bg-blue-50" },
+  open: { label: "입찰 받는 중", color: "text-mint-700", bg: "bg-mint-50" },
+  matched: { label: "✓ 매칭 완료", color: "text-blue-700", bg: "bg-blue-50" },
   completed: { label: "완료", color: "text-gray-600", bg: "bg-gray-100" },
   cancelled: { label: "취소", color: "text-red-600", bg: "bg-red-50" },
 };
@@ -95,8 +100,10 @@ export default function MyRequestsPage() {
         return;
       }
 
+      const requests = data || [];
+      const requestIds = requests.map((r) => r.id);
+
       // 입찰 수 카운트
-      const requestIds = (data || []).map((r) => r.id);
       let bidCounts: Record<string, number> = {};
       if (requestIds.length > 0) {
         const { data: allBids } = await supabase
@@ -112,9 +119,49 @@ export default function MyRequestsPage() {
         );
       }
 
-      const enriched = (data || []).map((r) => ({
+      // 매칭된 요청들의 선택된 기사 정보 한 번에 가져오기
+      const matchedRequests = requests.filter(
+        (r) => r.status === "matched" && r.selected_bid_id
+      );
+      const selectedBidIds = matchedRequests
+        .map((r) => r.selected_bid_id)
+        .filter(Boolean) as string[];
+
+      const driverInfoByBidId: Record<
+        string,
+        { name: string | null; price: number | null }
+      > = {};
+
+      if (selectedBidIds.length > 0) {
+        // 각 매칭된 요청별로 RPC 호출 (RLS 우회)
+        await Promise.all(
+          matchedRequests.map(async (req) => {
+            const { data: bidsData } = await supabase.rpc(
+              "get_bids_for_my_request",
+              { p_request_id: req.id }
+            );
+            const selected = (bidsData || []).find(
+              (b: { id: string }) => b.id === req.selected_bid_id
+            );
+            if (selected) {
+              driverInfoByBidId[req.selected_bid_id!] = {
+                name: selected.driver_name || "기사님",
+                price: selected.price,
+              };
+            }
+          })
+        );
+      }
+
+      const enriched: MoveRequest[] = requests.map((r) => ({
         ...r,
         bid_count: bidCounts[r.id] || 0,
+        selected_driver_name: r.selected_bid_id
+          ? driverInfoByBidId[r.selected_bid_id]?.name ?? null
+          : null,
+        selected_price: r.selected_bid_id
+          ? driverInfoByBidId[r.selected_bid_id]?.price ?? null
+          : null,
       }));
 
       setRequests(enriched);
@@ -131,6 +178,129 @@ export default function MyRequestsPage() {
       </div>
     );
   }
+
+  // 매칭된 요청 / 진행중 요청 분리
+  const matchedList = requests.filter((r) => r.status === "matched");
+  const openList = requests.filter((r) => r.status === "open");
+  const otherList = requests.filter(
+    (r) => r.status !== "matched" && r.status !== "open"
+  );
+
+  const renderCard = (req: MoveRequest) => {
+    const status = STATUS_CONFIG[req.status] ?? STATUS_CONFIG.open;
+    const remaining = getRemainingTime(req.bid_deadline);
+    const isOpen = req.status === "open";
+    const isMatched = req.status === "matched";
+
+    return (
+      <Link
+        key={req.id}
+        href={`/my/requests/${req.id}`}
+        className={`block rounded-2xl border p-4 transition hover:shadow-sm ${
+          isMatched
+            ? "border-blue-300 bg-blue-50/30 hover:border-blue-400"
+            : "border-gray-100 bg-white hover:border-mint-300"
+        }`}
+      >
+        {/* 상태 + 남은 시간 */}
+        <div className="flex items-center justify-between mb-3">
+          <span
+            className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${status.bg} ${status.color}`}
+          >
+            {status.label}
+          </span>
+          {isOpen && (
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-orange-600">
+              <Clock className="h-3 w-3" />
+              {remaining}
+            </span>
+          )}
+        </div>
+
+        {/* 이사 종류·공간 */}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm font-bold text-gray-900">
+            {req.service_type
+              ? SERVICE_TYPE_LABELS[req.service_type]
+              : "이사"}
+          </span>
+          <span className="text-xs text-gray-400">·</span>
+          <span className="text-xs text-gray-600">
+            {MOVE_TYPE_LABELS[req.move_type] ?? req.move_type}
+          </span>
+          {req.is_urgent && (
+            <span className="inline-block rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
+              긴급
+            </span>
+          )}
+        </div>
+
+        {/* 주소 요약 */}
+        <div className="flex items-start gap-1.5 text-xs text-gray-600 mb-1.5">
+          <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-mint-600" />
+          <div className="flex-1 line-clamp-1">
+            {req.from_address} → {req.to_address}
+          </div>
+        </div>
+
+        {/* 날짜 */}
+        <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-3">
+          <Calendar className="h-3.5 w-3.5 shrink-0 text-mint-600" />
+          <span>{req.preferred_date}</span>
+        </div>
+
+        {/* 매칭된 기사 정보 미리보기 (matched 상태일 때만) */}
+        {isMatched && req.selected_driver_name && (
+          <div className="flex items-center justify-between rounded-xl bg-white border border-blue-200 px-3 py-2 mb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100">
+                <UserIcon className="h-3.5 w-3.5 text-blue-700" />
+              </div>
+              <div>
+                <div className="text-[11px] text-gray-500 leading-tight">
+                  선택한 기사님
+                </div>
+                <div className="text-xs font-bold text-gray-900">
+                  {req.selected_driver_name}
+                </div>
+              </div>
+            </div>
+            {req.selected_price != null && (
+              <div className="text-sm font-bold text-blue-700">
+                {req.selected_price.toLocaleString("ko-KR")}원
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 푸터: 입찰 수 + 화살표 */}
+        <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            {isMatched ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+                <span className="font-medium text-blue-700">
+                  매칭 완료 — 자세히 보기
+                </span>
+              </>
+            ) : (
+              <>
+                <Users className="h-3.5 w-3.5 text-mint-600" />
+                <span className="font-medium">
+                  받은 견적{" "}
+                  <span className="text-mint-700 font-bold">
+                    {req.bid_count ?? 0}
+                  </span>
+                  건
+                </span>
+              </>
+            )}
+          </div>
+          <ChevronRight className="h-4 w-4 text-gray-400" />
+        </div>
+      </Link>
+    );
+  };
 
   return (
     <div className="app-container">
@@ -164,88 +334,47 @@ export default function MyRequestsPage() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-gray-500 mb-2">
-              총 {requests.length}건
-            </p>
-            {requests.map((req) => {
-              const status = STATUS_CONFIG[req.status] ?? STATUS_CONFIG.open;
-              const remaining = getRemainingTime(req.bid_deadline);
-              const isOpen = req.status === "open";
+          <div className="space-y-6">
+            <p className="text-xs text-gray-500">총 {requests.length}건</p>
 
-              return (
-                <Link
-                  key={req.id}
-                  href={`/my/requests/${req.id}`}
-                  className="block rounded-2xl border border-gray-100 bg-white p-4 transition hover:border-mint-300 hover:shadow-sm"
-                >
-                  {/* 상태 + 남은 시간 */}
-                  <div className="flex items-center justify-between mb-3">
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold ${status.bg} ${status.color}`}
-                    >
-                      {status.label}
-                    </span>
-                    {isOpen && (
-                      <span className="flex items-center gap-1 text-[11px] font-semibold text-orange-600">
-                        <Clock className="h-3 w-3" />
-                        {remaining}
-                      </span>
-                    )}
-                  </div>
+            {/* 매칭 완료 섹션 */}
+            {matchedList.length > 0 && (
+              <section>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <CheckCircle2 className="h-4 w-4 text-blue-600" />
+                  <h2 className="text-sm font-bold text-gray-900">
+                    매칭 완료 ({matchedList.length})
+                  </h2>
+                </div>
+                <div className="space-y-3">{matchedList.map(renderCard)}</div>
+              </section>
+            )}
 
-                  {/* 이사 종류·공간 */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-gray-900">
-                      {req.service_type
-                        ? SERVICE_TYPE_LABELS[req.service_type]
-                        : "이사"}
-                    </span>
-                    <span className="text-xs text-gray-400">·</span>
-                    <span className="text-xs text-gray-600">
-                      {MOVE_TYPE_LABELS[req.move_type] ?? req.move_type}
-                    </span>
-                    {req.is_urgent && (
-                      <span className="inline-block rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">
-                        긴급
-                      </span>
-                    )}
-                  </div>
+            {/* 입찰 받는 중 섹션 */}
+            {openList.length > 0 && (
+              <section>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Clock className="h-4 w-4 text-mint-600" />
+                  <h2 className="text-sm font-bold text-gray-900">
+                    입찰 받는 중 ({openList.length})
+                  </h2>
+                </div>
+                <div className="space-y-3">{openList.map(renderCard)}</div>
+              </section>
+            )}
 
-                  {/* 주소 요약 */}
-                  <div className="flex items-start gap-1.5 text-xs text-gray-600 mb-1.5">
-                    <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-mint-600" />
-                    <div className="flex-1 line-clamp-1">
-                      {req.from_address} → {req.to_address}
-                    </div>
-                  </div>
-
-                  {/* 날짜 */}
-                  <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-3">
-                    <Calendar className="h-3.5 w-3.5 shrink-0 text-mint-600" />
-                    <span>{req.preferred_date}</span>
-                  </div>
-
-                  {/* 푸터: 입찰 수 + 화살표 */}
-                  <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                      <Users className="h-3.5 w-3.5 text-mint-600" />
-                      <span className="font-medium">
-                        받은 견적{" "}
-                        <span className="text-mint-700 font-bold">
-                          {req.bid_count ?? 0}
-                        </span>
-                        건
-                      </span>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-gray-400" />
-                  </div>
-                </Link>
-              );
-            })}
+            {/* 그 외 (완료/취소) 섹션 */}
+            {otherList.length > 0 && (
+              <section>
+                <h2 className="text-sm font-bold text-gray-500 mb-2">
+                  지난 요청 ({otherList.length})
+                </h2>
+                <div className="space-y-3">{otherList.map(renderCard)}</div>
+              </section>
+            )}
 
             {/* 새 요청 버튼 */}
-            <Link href="/request" className="block pt-4">
+            <Link href="/request" className="block pt-2">
               <Button
                 variant="outline"
                 className="w-full h-12 border-mint-200 text-mint-600 font-bold rounded-xl hover:bg-mint-50"
