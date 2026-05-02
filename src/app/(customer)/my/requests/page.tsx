@@ -95,7 +95,29 @@ export default function MyRequestsPage() {
         return;
       }
 
-      setRequests(data || []);
+      // 입찰 수 카운트
+      const requestIds = (data || []).map((r) => r.id);
+      let bidCounts: Record<string, number> = {};
+      if (requestIds.length > 0) {
+        const { data: allBids } = await supabase
+          .from("bids")
+          .select("request_id")
+          .in("request_id", requestIds);
+        bidCounts = (allBids || []).reduce(
+          (acc: Record<string, number>, b) => {
+            acc[b.request_id] = (acc[b.request_id] || 0) + 1;
+            return acc;
+          },
+          {}
+        );
+      }
+
+      const enriched = (data || []).map((r) => ({
+        ...r,
+        bid_count: bidCounts[r.id] || 0,
+      }));
+
+      setRequests(enriched);
       setLoading(false);
     };
 
@@ -209,7 +231,11 @@ export default function MyRequestsPage() {
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
                       <Users className="h-3.5 w-3.5 text-mint-600" />
                       <span className="font-medium">
-                        받은 견적 <span className="text-mint-700 font-bold">0</span>건
+                        받은 견적{" "}
+                        <span className="text-mint-700 font-bold">
+                          {req.bid_count ?? 0}
+                        </span>
+                        건
                       </span>
                     </div>
                     <ChevronRight className="h-4 w-4 text-gray-400" />
