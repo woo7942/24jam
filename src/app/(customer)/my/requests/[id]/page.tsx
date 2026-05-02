@@ -131,39 +131,25 @@ export default function CustomerRequestDetailPage() {
 
       setRequest(req);
 
-      const { data: bidsData, error: bidsError } = await supabase
-        .from("bids")
-        .select("*")
-        .eq("request_id", requestId)
-        .order("price", { ascending: true });
+      // DB 함수로 입찰 + 기사 정보 한 번에 가져오기 (RLS 우회, 권한 체크 내장)
+const { data: bidsData, error: bidsError } = await supabase
+  .rpc("get_bids_for_my_request", { p_request_id: requestId });
 
-      if (bidsError) {
-        console.error(bidsError);
-        setLoading(false);
-        return;
-      }
+if (bidsError) {
+  console.error("입찰 조회 실패:", bidsError);
+  toast.error("입찰 목록을 불러오지 못했어요");
+  setLoading(false);
+  return;
+}
 
-      const driverIds = (bidsData || []).map((b) => b.driver_id);
-      let driverMap: Record<string, { name: string; phone: string }> = {};
-      if (driverIds.length > 0) {
-        const { data: drivers } = await supabase
-          .from("users")
-          .select("id, name, phone")
-          .in("id", driverIds);
-        driverMap = (drivers || []).reduce((acc, d) => {
-          acc[d.id] = { name: d.name, phone: d.phone };
-          return acc;
-        }, {} as Record<string, { name: string; phone: string }>);
-      }
+const enriched = (bidsData || []).map((b: Bid) => ({
+  ...b,
+  driver_name: b.driver_name || "기사님",
+}));
 
-      const enriched = (bidsData || []).map((b) => ({
-        ...b,
-        driver_name: driverMap[b.driver_id]?.name || "기사님",
-        driver_phone: driverMap[b.driver_id]?.phone,
-      }));
+setBids(enriched);
+setLoading(false);
 
-      setBids(enriched);
-      setLoading(false);
     };
 
     loadData();
