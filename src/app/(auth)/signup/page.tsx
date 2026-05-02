@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, User, Truck } from "lucide-react";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signUp, type UserRole } from "@/lib/supabase/auth";
 
-export default function SignUpPage() {
+function SignUpContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialRole = (searchParams.get("role") as UserRole) || "customer";
@@ -232,5 +232,19 @@ export default function SignUpPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-container flex items-center justify-center min-h-screen">
+          <Loader2 className="h-6 w-6 animate-spin text-mint-500" />
+        </div>
+      }
+    >
+      <SignUpContent />
+    </Suspense>
   );
 }
