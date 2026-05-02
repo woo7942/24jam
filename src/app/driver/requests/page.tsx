@@ -146,12 +146,49 @@ export default function DriverRequestsPage() {
     loadData();
   }, [user, profile, authLoading, router, loadData]);
 
-  // 🔔 Realtime 구독: 내 입찰 상태 변화 시 알림
+  // 🔔 Realtime 구독: 새 요청 + 내 입찰 상태 변화
 useEffect(() => {
   if (!user) return;
   const supabase = createClient();
   const channel = supabase
-    .channel(`driver-bids-${user.id}`)
+    .channel(`driver-realtime-${user.id}`)
+    // 1. 새로운 견적 요청 등록 감지
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "move_requests",
+      },
+      (payload) => {
+        const newReq = payload.new as { status?: string };
+        if (newReq.status === "open") {
+          toast.success("📦 새로운 요청이 도착했어요!", {
+            description: "지금 바로 입찰해보세요",
+            duration: 5000,
+          });
+          loadData();
+        }
+      }
+    )
+    // 2. 요청 상태 변화 감지 (취소/매칭/만료)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "move_requests",
+      },
+      (payload) => {
+        const newReq = payload.new as { status?: string };
+        const oldReq = payload.old as { status?: string };
+        // 상태가 바뀌었을 때만 목록 갱신 (예: open → matched/cancelled)
+        if (newReq.status !== oldReq.status) {
+          loadData();
+        }
+      }
+    )
+    // 3. 내 입찰 상태 변화 감지
     .on(
       "postgres_changes",
       {
@@ -164,7 +201,7 @@ useEffect(() => {
         const newRow = payload.new as { status?: string };
         if (newRow.status === "selected") {
           toast.success("🎉 새로운 매칭이 도착했어요!", {
-            description: "고객님이 회원님을 선택했습니다. 매칭 목록을 확인해주세요.",
+            description: "고객님이 회원님을 선택했습니다.",
             duration: 6000,
           });
           loadData();
@@ -189,6 +226,7 @@ useEffect(() => {
     supabase.removeChannel(channel);
   };
 }, [user, loadData]);
+
 
 
   if (authLoading || loading) {
