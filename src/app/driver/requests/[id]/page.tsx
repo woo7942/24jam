@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Handshake,
   XCircle,
+  PackageCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -45,8 +46,16 @@ interface MoveRequest {
   preferred_date: string;
   time_slot: string;
   is_urgent: boolean;
-  status: "open" | "matched" | "in_progress" | "completed" | "cancelled" | "expired";
+  status:
+    | "open"
+    | "matched"
+    | "pending_completion"
+    | "in_progress"
+    | "completed"
+    | "cancelled"
+    | "expired";
   bid_deadline: string;
+  selected_bid_id: string | null;
 }
 
 interface MyBid {
@@ -115,6 +124,7 @@ export default function DriverRequestDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [completing, setCompleting] = useState(false);
 
   const [price, setPrice] = useState("");
   const [message, setMessage] = useState("");
@@ -214,7 +224,7 @@ export default function DriverRequestDetailPage() {
           price: priceNum,
           message: message.trim() || null,
           estimated_duration_min: durationNum,
-          status: "pending", // 철회 후 재입찰 케이스 대비
+          status: "pending",
           updated_at: new Date().toISOString(),
         })
         .eq("id", myBid.id);
@@ -282,6 +292,40 @@ export default function DriverRequestDetailPage() {
     setTimeout(() => router.push("/driver/requests"), 600);
   };
 
+  // 이사 완료 요청 (matched → pending_completion)
+  const handleComplete = async () => {
+    if (!request || !myBid) return;
+    if (request.status !== "matched") {
+      toast.error("매칭된 요청만 완료 처리할 수 있습니다");
+      return;
+    }
+    if (
+      !confirm(
+        "이사를 완료하셨나요?\n\n고객님께 완료 확인 요청을 보냅니다.\n고객이 확인하면 정식 완료 처리됩니다."
+      )
+    ) {
+      return;
+    }
+
+    setCompleting(true);
+    const supabase = createClient();
+
+    const { error } = await supabase
+      .from("move_requests")
+      .update({ status: "pending_completion" })
+      .eq("id", request.id);
+
+    setCompleting(false);
+    if (error) {
+      console.error(error);
+      toast.error("완료 요청 실패: " + error.message);
+      return;
+    }
+
+    toast.success("고객 확인을 기다리고 있어요");
+    setRequest({ ...request, status: "pending_completion" });
+  };
+
   if (authLoading || loading) {
     return (
       <div className="app-container flex items-center justify-center min-h-screen">
@@ -293,6 +337,7 @@ export default function DriverRequestDetailPage() {
   if (!request) return null;
 
   const isMatched = request.status === "matched";
+  const isPendingCompletion = request.status === "pending_completion";
   const isCompleted = request.status === "completed";
   const isCancelled = request.status === "cancelled";
   const isExpired = request.status === "expired";
@@ -301,13 +346,17 @@ export default function DriverRequestDetailPage() {
     new Date(request.bid_deadline).getTime() < Date.now();
   const canBid =
     !isMatched &&
+    !isPendingCompletion &&
     !isCompleted &&
     !isCancelled &&
     !isExpired &&
     !isInProgress &&
     !isDeadlinePassed;
 
-  const myBidSelected = myBid?.status === "selected";
+  // 내가 선택된 기사인지: bid.status가 selected이거나, request.selected_bid_id가 내 bid id
+  const myBidSelected =
+    myBid?.status === "selected" ||
+    (myBid && request.selected_bid_id === myBid.id);
   const myBidRejected = myBid?.status === "rejected";
   const myBidWithdrawn = myBid?.status === "withdrawn";
   const myBidCancelled = myBid?.status === "cancelled";
@@ -326,7 +375,7 @@ export default function DriverRequestDetailPage() {
         {/* 상태 + 마감 시간 */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            {myBidSelected && (
+            {myBidSelected && !isCompleted && (
               <span className="inline-flex items-center gap-1 rounded-full bg-mint-100 px-2.5 py-1 text-xs font-bold text-mint-700">
                 <Handshake className="h-3.5 w-3.5" />
                 내가 선택됨
@@ -350,24 +399,32 @@ export default function DriverRequestDetailPage() {
                 고객이 취소함
               </span>
             )}
-            {myBid && !myBidSelected && !myBidRejected && !myBidWithdrawn && !myBidCancelled && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-bold text-mint-700">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                입찰 완료
-              </span>
-            )}
+            {myBid &&
+              !myBidSelected &&
+              !myBidRejected &&
+              !myBidWithdrawn &&
+              !myBidCancelled && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-mint-50 px-2.5 py-1 text-xs font-bold text-mint-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  입찰 완료
+                </span>
+              )}
             {request.is_urgent && (
               <span className="inline-block rounded-full bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600">
                 긴급
               </span>
             )}
           </div>
-          {!isMatched && !isCancelled && !isCompleted && !isExpired && (
-            <span className="flex items-center gap-1 text-xs font-semibold text-orange-600">
-              <Clock className="h-3.5 w-3.5" />
-              {getRemainingTime(request.bid_deadline)}
-            </span>
-          )}
+          {!isMatched &&
+            !isPendingCompletion &&
+            !isCancelled &&
+            !isCompleted &&
+            !isExpired && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-orange-600">
+                <Clock className="h-3.5 w-3.5" />
+                {getRemainingTime(request.bid_deadline)}
+              </span>
+            )}
         </div>
 
         {/* 이사 종류 */}
@@ -488,20 +545,57 @@ export default function DriverRequestDetailPage() {
 
         {/* 상태별 분기 */}
         {isMatched && myBidSelected ? (
-          <div className="rounded-2xl border-2 border-mint-300 bg-mint-50 p-5 mt-5 text-center">
-            <Handshake className="h-10 w-10 text-mint-600 mx-auto mb-2" />
-            <h3 className="font-bold text-mint-900 mb-1">
-              🎉 매칭에 성공했어요!
-            </h3>
-            <p className="text-sm text-mint-700 mb-4">
-              고객님이 회원님을 선택했습니다. 매칭 목록에서 고객 연락처를 확인하세요.
-            </p>
+          <div className="rounded-2xl border-2 border-mint-300 bg-mint-50 p-5 mt-5">
+            <div className="text-center mb-4">
+              <Handshake className="h-10 w-10 text-mint-600 mx-auto mb-2" />
+              <h3 className="font-bold text-mint-900 mb-1">
+                🎉 매칭에 성공했어요!
+              </h3>
+              <p className="text-sm text-mint-700">
+                이사를 완료하시면 아래 버튼을 눌러주세요.
+              </p>
+            </div>
+
+            <Button
+              onClick={handleComplete}
+              disabled={completing}
+              className="w-full h-12 bg-mint-600 hover:bg-mint-700 text-white font-bold mb-2"
+            >
+              {completing ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <>
+                  <PackageCheck className="h-5 w-5 mr-1.5" />
+                  이사 완료했어요
+                </>
+              )}
+            </Button>
+
             <Link
               href="/driver/requests"
-              className="inline-block rounded-full bg-mint-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-mint-700"
+              className="block w-full text-center rounded-xl border border-mint-300 px-5 py-2.5 text-sm font-semibold text-mint-700 hover:bg-mint-100"
             >
-              매칭 목록 보기
+              매칭 목록 보기 (고객 연락처)
             </Link>
+          </div>
+        ) : isPendingCompletion && myBidSelected ? (
+          <div className="rounded-2xl border-2 border-orange-200 bg-orange-50 p-5 mt-5 text-center">
+            <Loader2 className="h-10 w-10 text-orange-500 mx-auto mb-2 animate-spin" />
+            <h3 className="font-bold text-orange-900 mb-1">
+              고객 확인을 기다리고 있어요
+            </h3>
+            <p className="text-sm text-orange-700">
+              고객님이 이사 완료를 확인하면
+              <br />
+              정식 완료 처리됩니다.
+            </p>
+          </div>
+        ) : isPendingCompletion ? (
+          <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
+            <div className="text-3xl mb-2">⏳</div>
+            <h3 className="font-bold text-gray-800 mb-1">
+              완료 확인 대기 중인 요청입니다
+            </h3>
           </div>
         ) : isMatched ? (
           <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
@@ -527,11 +621,21 @@ export default function DriverRequestDetailPage() {
               고객이 요청을 취소했습니다.
             </p>
           </div>
-        ) : isCompleted || isInProgress ? (
+        ) : isCompleted ? (
+          <div className="rounded-2xl border-2 border-mint-200 bg-mint-50 p-5 mt-5 text-center">
+            <CheckCircle2 className="h-10 w-10 text-mint-600 mx-auto mb-2" />
+            <h3 className="font-bold text-mint-900 mb-1">
+              이사가 완료되었어요!
+            </h3>
+            <p className="text-sm text-mint-700">
+              수고하셨습니다. 좋은 후기를 받으면 알려드릴게요.
+            </p>
+          </div>
+        ) : isInProgress ? (
           <div className="rounded-2xl border-2 border-gray-200 bg-gray-50 p-5 mt-5 text-center">
-            <div className="text-3xl mb-2">✅</div>
+            <div className="text-3xl mb-2">🚚</div>
             <h3 className="font-bold text-gray-800 mb-1">
-              {isCompleted ? "완료된 요청입니다" : "진행 중인 요청입니다"}
+              진행 중인 요청입니다
             </h3>
           </div>
         ) : isExpired || isDeadlinePassed ? (
