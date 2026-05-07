@@ -321,16 +321,19 @@ export default function DriverRequestsPage() {
               </h2>
             </div>
             <div className="space-y-3">
-              {matched.map((m) => {
+                            {matched.map((m) => {
                 const isMatched = m.request_status === "matched";
                 const isPendingCompletion =
                   m.request_status === "pending_completion";
                 const isCompleted = m.request_status === "completed";
 
-                return (
+                                return (
                   <div
                     key={m.bid_id}
-                    className={`rounded-2xl border-2 p-4 ${
+                    onClick={() => router.push(`/driver/requests/${m.request_id}`)}
+                    role="button"
+                    tabIndex={0}
+                    className={`block cursor-pointer rounded-2xl border-2 p-4 transition active:scale-[0.99] touch-manipulation ${
                       isCompleted
                         ? "border-gray-200 bg-gray-50"
                         : isPendingCompletion
@@ -338,6 +341,7 @@ export default function DriverRequestsPage() {
                         : "border-mint-300 bg-mint-50/50"
                     }`}
                   >
+
                     <div className="flex items-center gap-1 mb-2">
                       {isCompleted ? (
                         <>
@@ -421,10 +425,12 @@ export default function DriverRequestsPage() {
                           </div>
                         </div>
                         {!isCompleted && (
-                          <a
+                                                    <a
                             href={`tel:${m.customer_phone}`}
+                            onClick={(e) => e.stopPropagation()}
                             className="flex items-center gap-1 rounded-full bg-mint-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-mint-700"
                           >
+
                             <Phone className="h-3 w-3" />
                             전화
                           </a>
@@ -439,14 +445,17 @@ export default function DriverRequestsPage() {
                     )}
 
                     {/* 상태별 버튼 */}
-                    {isMatched && (
+                                        {isMatched && (
                       <button
-                        onClick={() =>
-                          handleCompleteRequest(m.request_id, m.customer_name)
-                        }
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleCompleteRequest(m.request_id, m.customer_name);
+                        }}
                         disabled={completing === m.request_id}
                         className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-mint-600 hover:bg-mint-700 text-white text-sm font-bold disabled:opacity-50"
                       >
+
                         {completing === m.request_id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
@@ -465,7 +474,7 @@ export default function DriverRequestsPage() {
                       </div>
                     )}
 
-                    {isCompleted && (
+                         {isCompleted && (
                       <div className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-gray-200 text-gray-600 text-sm font-semibold">
                         <CheckCircle2 className="h-4 w-4" />
                         이사가 완료되었어요
@@ -474,6 +483,8 @@ export default function DriverRequestsPage() {
                   </div>
                 );
               })}
+
+
             </div>
           </section>
         )}

@@ -249,26 +249,18 @@ export function Header() {
               </Link>
             )}
 
-          {/* 사용자 이름 (모바일에서는 숨김) */}
+                    {/* 사용자 이름 (모바일/PC 공통) */}
           <Link
             href="/my/requests"
-            className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-gray-700"
+            className="flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition whitespace-nowrap"
           >
-            <UserIcon className="h-4 w-4" />
+            <UserIcon className="h-3.5 w-3.5" />
             <span className="max-w-[60px] truncate">{profile.name}</span>
             {profile.role === "driver" && (
-              <span className="text-[10px] text-mint-600 font-bold">기사</span>
+              <span className="text-[10px] text-mint-600 font-bold ml-0.5">기사</span>
             )}
           </Link>
 
-          {/* 모바일: 사용자 아이콘만 */}
-          <Link
-            href="/my/requests"
-            className="sm:hidden flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
-            title={profile.name}
-          >
-            <UserIcon className="h-4 w-4" />
-          </Link>
 
           <button
             onClick={handleLogout}

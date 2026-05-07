@@ -30,7 +30,9 @@ interface MoveRequest {
   preferred_date: string;
   time_slot: string;
   is_urgent: boolean;
-  status: "open" | "matched" | "in_progress" | "completed" | "cancelled" | "expired";
+    status: "open" | "matched" | "pending_completion" | "in_progress" | "completed" | "cancelled" | "expired";
+  has_review?: boolean;
+
   bid_deadline: string;
   created_at: string;
   selected_bid_id: string | null;
@@ -58,11 +60,17 @@ const STATUS_CONFIG: Record<
 > = {
   open: { label: "입찰 받는 중", color: "text-mint-700", bg: "bg-mint-50" },
   matched: { label: "✓ 매칭 완료", color: "text-blue-700", bg: "bg-blue-50" },
+  pending_completion: {
+    label: "⏳ 완료 확인 필요",
+    color: "text-orange-700",
+    bg: "bg-orange-100",
+  },
   in_progress: { label: "진행 중", color: "text-purple-700", bg: "bg-purple-50" },
-  completed: { label: "완료", color: "text-gray-600", bg: "bg-gray-100" },
+  completed: { label: "✅ 완료됨", color: "text-green-700", bg: "bg-green-50" },
   cancelled: { label: "취소됨", color: "text-red-600", bg: "bg-red-50" },
   expired: { label: "기간 만료", color: "text-gray-600", bg: "bg-gray-100" },
 };
+
 
 function getRemainingTime(deadline: string): string {
   const diff = new Date(deadline).getTime() - Date.now();
@@ -142,9 +150,24 @@ export default function MyRequestsPage() {
       );
     }
 
+        // completed 요청들의 후기 작성 여부 조회
+    const completedIds = requestsList
+      .filter((r) => r.status === "completed")
+      .map((r) => r.id);
+    
+    let reviewedSet = new Set<string>();
+    if (completedIds.length > 0) {
+      const { data: reviews } = await supabase
+        .from("reviews")
+        .select("request_id")
+        .in("request_id", completedIds);
+      reviewedSet = new Set((reviews || []).map((r) => r.request_id));
+    }
+
     const enriched: MoveRequest[] = requestsList.map((r) => ({
       ...r,
       bid_count: bidCounts[r.id] || 0,
+      has_review: reviewedSet.has(r.id),
       selected_driver_name: r.selected_bid_id
         ? driverInfoByBidId[r.selected_bid_id]?.name ?? null
         : null,
@@ -156,6 +179,7 @@ export default function MyRequestsPage() {
     setRequests(enriched);
     setLoading(false);
   };
+
 
   useEffect(() => {
     if (authLoading) return;
@@ -225,11 +249,18 @@ export default function MyRequestsPage() {
     );
   }
 
+    const pendingCompletionList = requests.filter(
+    (r) => r.status === "pending_completion"
+  );
   const matchedList = requests.filter((r) => r.status === "matched");
   const openList = requests.filter((r) => r.status === "open");
   const otherList = requests.filter(
-    (r) => r.status !== "matched" && r.status !== "open"
+    (r) =>
+      r.status !== "matched" &&
+      r.status !== "open" &&
+      r.status !== "pending_completion"
   );
+
 
   const renderCard = (req: MoveRequest) => {
     const status = STATUS_CONFIG[req.status] ?? STATUS_CONFIG.open;
@@ -242,16 +273,19 @@ export default function MyRequestsPage() {
 
     return (
       <div key={req.id} className="relative">
-        <Link
+                <Link
           href={`/my/requests/${req.id}`}
           className={`block rounded-2xl border p-4 transition hover:shadow-sm ${
-            isMatched
+            req.status === "pending_completion"
+              ? "border-orange-300 bg-orange-50/40 hover:border-orange-400 ring-2 ring-orange-100"
+              : isMatched
               ? "border-blue-300 bg-blue-50/30 hover:border-blue-400"
               : isDeletable
               ? "border-gray-100 bg-gray-50/50 hover:border-gray-300"
               : "border-gray-100 bg-white hover:border-mint-300"
           }`}
         >
+
           {/* 상태 + 남은 시간 */}
           <div className="flex items-center justify-between mb-3">
             <span
@@ -298,6 +332,25 @@ export default function MyRequestsPage() {
             <Calendar className="h-3.5 w-3.5 shrink-0 text-mint-600" />
             <span>{req.preferred_date}</span>
           </div>
+
+                    {/* 후기 작성 가능 배지 */}
+          {req.status === "completed" && !req.has_review && (
+            <div className="flex items-center justify-center gap-1.5 rounded-xl bg-yellow-50 border border-yellow-200 px-3 py-2 mb-3">
+              <span className="text-xs font-bold text-yellow-700">
+                ⭐ 후기 작성하기
+              </span>
+            </div>
+          )}
+
+          {/* 완료 확인 필요 안내 */}
+          {req.status === "pending_completion" && (
+            <div className="flex items-center justify-center gap-1.5 rounded-xl bg-orange-50 border border-orange-200 px-3 py-2 mb-3">
+              <span className="text-xs font-bold text-orange-700">
+                기사님이 이사 완료를 알렸어요. 확인해주세요!
+              </span>
+            </div>
+          )}
+
 
           {/* 매칭된 기사 정보 미리보기 */}
           {isMatched && req.selected_driver_name && (
@@ -401,6 +454,20 @@ export default function MyRequestsPage() {
         ) : (
           <div className="space-y-6">
             <p className="text-xs text-gray-500">총 {requests.length}건</p>
+
+            {pendingCompletionList.length > 0 && (
+              <section>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Clock className="h-4 w-4 text-orange-600" />
+                  <h2 className="text-sm font-bold text-orange-700">
+                    완료 확인 필요 ({pendingCompletionList.length})
+                  </h2>
+                </div>
+                <div className="space-y-3">
+                  {pendingCompletionList.map(renderCard)}
+                </div>
+              </section>
+            )}
 
             {matchedList.length > 0 && (
               <section>
