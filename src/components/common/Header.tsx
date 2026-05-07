@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, FileText, Sparkles, Inbox, Package } from "lucide-react";
+import { LogOut, User as UserIcon, FileText, Sparkles, Inbox, Package, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { signOut } from "@/lib/supabase/auth";
@@ -14,17 +14,21 @@ export function Header() {
   const { user, profile, loading } = useAuth();
   const [matchedCount, setMatchedCount] = useState(0); // 기사: 매칭된 입찰 수
   const [openRequestCount, setOpenRequestCount] = useState(0); // 기사: 새 요청 수
+  const [rejectedCount, setRejectedCount] = useState(0); // 기사: 거절된 입찰 수 (확인 안 한 것)
   const [bidReceivedCount, setBidReceivedCount] = useState(0); // 고객: 입찰 받은 요청 수
+  const initialLoadRef = useRef(true); // 첫 로드 시 토스트 방지
 
   // 기사 카운트 + Realtime
   useEffect(() => {
     if (!user || !profile || profile.role !== "driver") {
       setMatchedCount(0);
       setOpenRequestCount(0);
+      setRejectedCount(0);
       return;
     }
 
     const supabase = createClient();
+    initialLoadRef.current = true;
 
     const fetchDriverCounts = async () => {
       const { count: matched } = await supabase
@@ -40,6 +44,34 @@ export function Header() {
         .eq("status", "open")
         .gt("bid_deadline", new Date().toISOString());
       setOpenRequestCount(openReqs ?? 0);
+
+      // 거절된 입찰 수 (localStorage로 확인 여부 관리)
+      const { count: rejected } = await supabase
+        .from("bids")
+        .select("id", { count: "exact", head: true })
+        .eq("driver_id", user.id)
+        .eq("status", "rejected");
+      
+      const seenRejectedIds = JSON.parse(
+        localStorage.getItem(`seen_rejected_${user.id}`) || "[]"
+      );
+      
+      const { data: rejectedBids } = await supabase
+        .from("bids")
+        .select("id")
+        .eq("driver_id", user.id)
+        .eq("status", "rejected");
+      
+      const unseenCount = (rejectedBids || []).filter(
+        (b) => !seenRejectedIds.includes(b.id)
+      ).length;
+      
+      setRejectedCount(unseenCount);
+
+      // 첫 로드 완료
+      setTimeout(() => {
+        initialLoadRef.current = false;
+      }, 1000);
     };
 
     fetchDriverCounts();
@@ -49,7 +81,47 @@ export function Header() {
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "UPDATE",
+          schema: "public",
+          table: "bids",
+          filter: `driver_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const newBid = payload.new as { id?: string; status?: string };
+          const oldBid = payload.old as { status?: string };
+          
+          // 거절 알림 (rejected로 변경된 경우)
+          if (
+            !initialLoadRef.current &&
+            newBid.status === "rejected" &&
+            oldBid.status !== "rejected"
+          ) {
+            toast.error("이번 매칭에는 선정되지 않았어요 😢", {
+              description: "다른 좋은 요청도 많이 있어요!",
+              duration: 5000,
+              action: {
+                label: "다른 요청 보기",
+                onClick: () => router.push("/driver/requests"),
+              },
+            });
+          }
+          fetchDriverCounts();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "bids",
+          filter: `driver_id=eq.${user.id}`,
+        },
+        () => fetchDriverCounts()
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
           schema: "public",
           table: "bids",
           filter: `driver_id=eq.${user.id}`,
@@ -65,7 +137,7 @@ export function Header() {
         },
         (payload) => {
           const newReq = payload.new as { status?: string };
-          if (newReq.status === "open") {
+          if (newReq.status === "open" && !initialLoadRef.current) {
             toast.success("📦 새로운 견적 요청이 도착했어요!", {
               description: "지금 바로 확인해보세요",
               duration: 5000,
@@ -177,6 +249,21 @@ export function Header() {
     router.refresh();
   };
 
+  // 거절된 입찰 확인 처리 (배지 클릭 시)
+  const handleRejectedClick = async () => {
+    if (!user) return;
+    const supabase = createClient();
+    const { data: rejectedBids } = await supabase
+      .from("bids")
+      .select("id")
+      .eq("driver_id", user.id)
+      .eq("status", "rejected");
+    
+    const allIds = (rejectedBids || []).map((b) => b.id);
+    localStorage.setItem(`seen_rejected_${user.id}`, JSON.stringify(allIds));
+    setRejectedCount(0);
+  };
+
   return (
     <header className="sticky top-0 z-50 flex h-14 items-center justify-between bg-white/80 px-3 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-1.5 shrink-0">
@@ -225,6 +312,18 @@ export function Header() {
             </Link>
           )}
 
+          {/* 기사: 거절 알림 버튼 (있을 때만) */}
+          {profile.role === "driver" && rejectedCount > 0 && (
+            <Link
+              href="/driver/requests"
+              onClick={handleRejectedClick}
+              className="flex items-center gap-1 rounded-full bg-gray-500 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-md hover:bg-gray-600 transition whitespace-nowrap"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              거절 {rejectedCount}
+            </Link>
+          )}
+
           {/* 기사: 새 요청 버튼 (있을 때만) */}
           {profile.role === "driver" && openRequestCount > 0 && (
             <Link
@@ -236,9 +335,10 @@ export function Header() {
             </Link>
           )}
 
-          {/* 기사: 둘 다 없을 때 평소 버튼 */}
+          {/* 기사: 매칭/거절/새요청 다 없을 때 평소 버튼 */}
           {profile.role === "driver" &&
             matchedCount === 0 &&
+            rejectedCount === 0 &&
             openRequestCount === 0 && (
               <Link
                 href="/driver/requests"
@@ -249,7 +349,7 @@ export function Header() {
               </Link>
             )}
 
-                    {/* 사용자 이름 (모바일/PC 공통) */}
+          {/* 사용자 이름 (모바일/PC 공통) */}
           <Link
             href="/my/requests"
             className="flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition whitespace-nowrap"
@@ -260,7 +360,6 @@ export function Header() {
               <span className="text-[10px] text-mint-600 font-bold ml-0.5">기사</span>
             )}
           </Link>
-
 
           <button
             onClick={handleLogout}
