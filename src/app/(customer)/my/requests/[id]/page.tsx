@@ -61,6 +61,8 @@ interface Bid {
   created_at: string;
   driver_name?: string;
   driver_phone?: string;
+  driver_avg_rating?: number;     // ← 추가
+  driver_review_count?: number;   // ← 추가
 }
 
 interface Review {
@@ -630,14 +632,28 @@ export default function CustomerRequestDetailPage() {
               ✓ {isCompleted ? "이사를 함께한 기사님" : "선택한 기사님"}
             </div>
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100">
                   <UserIcon className="h-4 w-4 text-blue-700" />
                 </div>
                 <div>
-                  <div className="font-bold text-sm">
+                  <Link
+                    href={`/driver/${acceptedBid.driver_id}`}
+                    className="font-bold text-sm hover:underline"
+                  >
                     {acceptedBid.driver_name}
-                  </div>
+                  </Link>
+                  {acceptedBid.driver_review_count && acceptedBid.driver_review_count > 0 ? (
+                    <div className="flex items-center gap-0.5 mt-0.5">
+                      <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                      <span className="text-[11px] font-bold text-gray-700">
+                        {Number(acceptedBid.driver_avg_rating).toFixed(1)}
+                      </span>
+                      <span className="text-[11px] text-gray-500">
+                        ({acceptedBid.driver_review_count})
+                      </span>
+                    </div>
+                  ) : null}
                   {acceptedBid.driver_phone && (
                     <div className="text-xs text-gray-600">
                       {acceptedBid.driver_phone}
@@ -645,6 +661,7 @@ export default function CustomerRequestDetailPage() {
                   )}
                 </div>
               </div>
+
               <div className="text-right">
                 <div className="text-lg font-bold text-blue-700">
                   {acceptedBid.price.toLocaleString("ko-KR")}원
@@ -910,15 +927,38 @@ export default function CustomerRequestDetailPage() {
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-mint-100">
                             <UserIcon className="h-4 w-4 text-mint-700" />
                           </div>
-                          <div>
-                            <div className="font-bold text-sm flex items-center gap-1.5">
+                                                    <div>
+                            <Link
+                              href={`/driver/${bid.driver_id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-bold text-sm flex items-center gap-1.5 hover:underline"
+                            >
                               {bid.driver_name}
                               {isLowest && (
                                 <span className="inline-block rounded-full bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">
                                   최저가
                                 </span>
                               )}
-                            </div>
+                            </Link>
+                            {/* 별점 표시 */}
+                            {bid.driver_review_count && bid.driver_review_count > 0 ? (
+                              <Link
+                                href={`/driver/${bid.driver_id}`}
+                                className="flex items-center gap-0.5 mt-0.5 hover:underline"
+                              >
+                                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                <span className="text-[11px] font-bold text-gray-700">
+                                  {Number(bid.driver_avg_rating).toFixed(1)}
+                                </span>
+                                <span className="text-[11px] text-gray-500">
+                                  ({bid.driver_review_count})
+                                </span>
+                              </Link>
+                            ) : (
+                              <div className="text-[11px] text-gray-400 mt-0.5">
+                                후기 없음
+                              </div>
+                            )}
                             {bid.estimated_duration_min && (
                               <div className="text-[11px] text-gray-500 mt-0.5">
                                 예상{" "}
@@ -928,6 +968,7 @@ export default function CustomerRequestDetailPage() {
                               </div>
                             )}
                           </div>
+
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-bold text-gray-900">
