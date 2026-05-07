@@ -15,6 +15,7 @@ import {
   Phone,
   Sparkles,
   PackageCheck,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -57,6 +58,19 @@ interface MatchedRequest {
   matched_at: string;
 }
 
+interface RejectedBid {
+  bid_id: string;
+  request_id: string;
+  price: number;
+  bid_created_at: string;
+  from_address: string;
+  to_address: string;
+  preferred_date: string;
+  time_slot: string;
+  service_type: string;
+  move_type: string;
+}
+
 const SERVICE_TYPE_LABELS: Record<string, string> = {
   general: "일반이사",
   half_packing: "반포장이사",
@@ -91,6 +105,8 @@ export default function DriverRequestsPage() {
   const { user, profile, loading: authLoading } = useAuth();
   const [requests, setRequests] = useState<MoveRequest[]>([]);
   const [matched, setMatched] = useState<MatchedRequest[]>([]);
+  const [rejected, setRejected] = useState<RejectedBid[]>([]);
+  const [showRejected, setShowRejected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState<string | null>(null);
 
@@ -108,7 +124,56 @@ export default function DriverRequestsPage() {
       setMatched(matchedData || []);
     }
 
-    // 2. 입찰 가능한 요청
+    // 2. 거절된 입찰 (최근 10개)
+    const { data: rejectedData, error: rejectedError } = await supabase
+      .from("bids")
+      .select(
+        `
+        id,
+        request_id,
+        price,
+        created_at,
+        move_requests (
+          from_address,
+          to_address,
+          preferred_date,
+          time_slot,
+          service_type,
+          move_type
+        )
+      `
+      )
+      .eq("driver_id", user.id)
+      .eq("status", "rejected")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (rejectedError) {
+      console.error("거절 입찰 조회 실패:", rejectedError);
+    } else {
+      const rejectedEnriched: RejectedBid[] = (rejectedData || [])
+        .filter((b) => b.move_requests)
+        .map((b) => {
+          const mr = Array.isArray(b.move_requests)
+            ? b.move_requests[0]
+            : b.move_requests;
+          return {
+            bid_id: b.id,
+            request_id: b.request_id,
+            price: b.price,
+            bid_created_at: b.created_at,
+            from_address: mr.from_address,
+            to_address: mr.to_address,
+            preferred_date: mr.preferred_date,
+            time_slot: mr.time_slot,
+            service_type: mr.service_type,
+            move_type: mr.move_type,
+          };
+        });
+      setRejected(rejectedEnriched);
+    }
+
+    // 3. 입찰 가능한 요청
     const { data: requestsData, error: requestsError } = await supabase
       .from("move_requests")
       .select("*")
@@ -205,7 +270,6 @@ export default function DriverRequestsPage() {
           const newReq = payload.new as { status?: string };
           const oldReq = payload.old as { status?: string };
           if (newReq.status !== oldReq.status) {
-            // 내 매칭 요청이 completed 되면 토스트
             if (newReq.status === "completed") {
               toast.success("🎉 고객님이 이사 완료를 확인했어요!", {
                 description: "수고하셨습니다.",
@@ -233,10 +297,7 @@ export default function DriverRequestsPage() {
             });
             loadData();
           } else if (newRow.status === "rejected") {
-            toast("😢 다른 기사님이 선택되었어요", {
-              description: "다음 기회에 다시 도전해보세요!",
-              duration: 5000,
-            });
+            // 헤더 토스트와 중복 방지를 위해 여기서는 데이터만 갱신
             loadData();
           } else if (newRow.status === "cancelled") {
             toast("⚠️ 고객이 요청을 취소했어요", {
@@ -254,7 +315,6 @@ export default function DriverRequestsPage() {
     };
   }, [user, loadData]);
 
-  // 이사 완료 요청 (matched → pending_completion)
   const handleCompleteRequest = async (
     requestId: string,
     customerName: string
@@ -283,7 +343,6 @@ export default function DriverRequestsPage() {
     }
 
     toast.success("고객 확인을 기다리고 있어요");
-    // 로컬 상태 즉시 반영
     setMatched((prev) =>
       prev.map((m) =>
         m.request_id === requestId
@@ -321,16 +380,18 @@ export default function DriverRequestsPage() {
               </h2>
             </div>
             <div className="space-y-3">
-                            {matched.map((m) => {
+              {matched.map((m) => {
                 const isMatched = m.request_status === "matched";
                 const isPendingCompletion =
                   m.request_status === "pending_completion";
                 const isCompleted = m.request_status === "completed";
 
-                                return (
+                return (
                   <div
                     key={m.bid_id}
-                    onClick={() => router.push(`/driver/requests/${m.request_id}`)}
+                    onClick={() =>
+                      router.push(`/driver/requests/${m.request_id}`)
+                    }
                     role="button"
                     tabIndex={0}
                     className={`block cursor-pointer rounded-2xl border-2 p-4 transition active:scale-[0.99] touch-manipulation ${
@@ -341,7 +402,6 @@ export default function DriverRequestsPage() {
                         : "border-mint-300 bg-mint-50/50"
                     }`}
                   >
-
                     <div className="flex items-center gap-1 mb-2">
                       {isCompleted ? (
                         <>
@@ -410,7 +470,6 @@ export default function DriverRequestsPage() {
                       )}
                     </div>
 
-                    {/* 고객 연락처 박스 */}
                     <div className="rounded-xl bg-white border p-3 mb-3">
                       <div className="text-[11px] font-semibold text-gray-500 mb-1">
                         고객 정보
@@ -425,12 +484,11 @@ export default function DriverRequestsPage() {
                           </div>
                         </div>
                         {!isCompleted && (
-                                                    <a
+                          <a
                             href={`tel:${m.customer_phone}`}
                             onClick={(e) => e.stopPropagation()}
                             className="flex items-center gap-1 rounded-full bg-mint-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-mint-700"
                           >
-
                             <Phone className="h-3 w-3" />
                             전화
                           </a>
@@ -444,8 +502,7 @@ export default function DriverRequestsPage() {
                       </div>
                     )}
 
-                    {/* 상태별 버튼 */}
-                                        {isMatched && (
+                    {isMatched && (
                       <button
                         onClick={(e) => {
                           e.preventDefault();
@@ -455,7 +512,6 @@ export default function DriverRequestsPage() {
                         disabled={completing === m.request_id}
                         className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-mint-600 hover:bg-mint-700 text-white text-sm font-bold disabled:opacity-50"
                       >
-
                         {completing === m.request_id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
@@ -474,7 +530,7 @@ export default function DriverRequestsPage() {
                       </div>
                     )}
 
-                         {isCompleted && (
+                    {isCompleted && (
                       <div className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-gray-200 text-gray-600 text-sm font-semibold">
                         <CheckCircle2 className="h-4 w-4" />
                         이사가 완료되었어요
@@ -483,9 +539,78 @@ export default function DriverRequestsPage() {
                   </div>
                 );
               })}
-
-
             </div>
+          </section>
+        )}
+
+        {/* 😢 선정되지 않은 입찰 (접기/펼치기) */}
+        {rejected.length > 0 && (
+          <section>
+            <button
+              onClick={() => setShowRejected((v) => !v)}
+              className="flex items-center justify-between w-full mb-3"
+            >
+              <div className="flex items-center gap-2">
+                <XCircle className="h-4 w-4 text-gray-500" />
+                <h2 className="font-semibold text-sm text-gray-700">
+                  선정되지 않은 입찰 ({rejected.length}건)
+                </h2>
+              </div>
+              <span className="text-xs text-gray-500">
+                {showRejected ? "접기" : "펼치기"}
+              </span>
+            </button>
+
+            {showRejected && (
+              <div className="space-y-2">
+                {rejected.map((r) => (
+                  <div
+                    key={r.bid_id}
+                    className="rounded-2xl border border-gray-200 bg-gray-50 p-4 opacity-80"
+                  >
+                    <div className="flex items-center gap-1 mb-2">
+                      <XCircle className="h-3.5 w-3.5 text-gray-500" />
+                      <span className="text-xs font-semibold text-gray-600">
+                        선정되지 않음
+                      </span>
+                      <span className="ml-auto text-xs text-gray-500">
+                        {new Date(r.bid_created_at).toLocaleDateString("ko-KR")}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 border">
+                        {SERVICE_TYPE_LABELS[r.service_type] || r.service_type}
+                      </span>
+                      <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 border">
+                        {MOVE_TYPE_LABELS[r.move_type] || r.move_type}
+                      </span>
+                      <span className="inline-flex rounded-full bg-gray-300 px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                        내 입찰가: {r.price.toLocaleString()}원
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 text-xs text-gray-600">
+                      <div className="flex items-start gap-1.5">
+                        <MapPin className="h-3 w-3 mt-0.5 text-gray-400 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="truncate">출발: {r.from_address}</div>
+                          <div className="truncate">도착: {r.to_address}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-3 w-3 text-gray-400" />
+                        <span>{r.preferred_date}</span>
+                        <Clock className="h-3 w-3 text-gray-400 ml-2" />
+                        <span>
+                          {TIME_SLOT_LABELS[r.time_slot] || r.time_slot}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -532,7 +657,8 @@ export default function DriverRequestsPage() {
 
                     <div className="flex flex-wrap gap-1 mb-2">
                       <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
-                        {SERVICE_TYPE_LABELS[req.service_type] || req.service_type}
+                        {SERVICE_TYPE_LABELS[req.service_type] ||
+                          req.service_type}
                       </span>
                       <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
                         {MOVE_TYPE_LABELS[req.move_type] || req.move_type}
@@ -551,7 +677,9 @@ export default function DriverRequestsPage() {
                         <Calendar className="h-3.5 w-3.5 text-gray-400" />
                         <span>{req.preferred_date}</span>
                         <Clock className="h-3.5 w-3.5 text-gray-400 ml-2" />
-                        <span>{TIME_SLOT_LABELS[req.time_slot] || req.time_slot}</span>
+                        <span>
+                          {TIME_SLOT_LABELS[req.time_slot] || req.time_slot}
+                        </span>
                       </div>
                       {req.box_count > 0 && (
                         <div className="flex items-center gap-1.5">
