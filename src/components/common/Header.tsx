@@ -31,12 +31,20 @@ export function Header() {
     initialLoadRef.current = true;
 
     const fetchDriverCounts = async () => {
-      const { count: matched } = await supabase
-        .from("bids")
-        .select("id", { count: "exact", head: true })
-        .eq("driver_id", user.id)
-        .eq("status", "selected");
-      setMatchedCount(matched ?? 0);
+      // 매칭 카운트: 진행 중인 것만 (matched + pending_completion)
+const { data: myBidsForCount } = await supabase
+  .from("bids")
+  .select("request_id, move_requests!inner(status)")
+  .eq("driver_id", user.id)
+  .eq("status", "selected");
+
+const activeMatchedCount = (myBidsForCount || []).filter((b) => {
+  const mr = Array.isArray(b.move_requests) ? b.move_requests[0] : b.move_requests;
+  return mr && (mr.status === "matched" || mr.status === "pending_completion");
+}).length;
+
+setMatchedCount(activeMatchedCount);
+
 
       const { count: openReqs } = await supabase
         .from("move_requests")

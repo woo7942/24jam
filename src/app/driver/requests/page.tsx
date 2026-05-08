@@ -107,6 +107,7 @@ export default function DriverRequestsPage() {
   const [matched, setMatched] = useState<MatchedRequest[]>([]);
   const [rejected, setRejected] = useState<RejectedBid[]>([]);
   const [showRejected, setShowRejected] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState<string | null>(null);
 
@@ -370,178 +371,234 @@ export default function DriverRequestsPage() {
       </header>
 
       <div className="px-5 pt-4 pb-10 space-y-6">
-        {/* 🎉 매칭 완료된 요청 */}
-        {matched.length > 0 && (
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="h-5 w-5 text-mint-600" />
-              <h2 className="font-bold text-base">
-                매칭 완료된 요청 ({matched.length}건)
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {matched.map((m) => {
-                const isMatched = m.request_status === "matched";
-                const isPendingCompletion =
-                  m.request_status === "pending_completion";
-                const isCompleted = m.request_status === "completed";
+        {/* 🎉 진행 중인 매칭 */}
+{matched.filter((m) => m.request_status !== "completed").length > 0 && (
+  <section>
+    <div className="flex items-center gap-2 mb-3">
+      <Sparkles className="h-5 w-5 text-mint-600" />
+      <h2 className="font-bold text-base">
+        진행 중인 매칭 (
+        {matched.filter((m) => m.request_status !== "completed").length}건)
+      </h2>
+    </div>
+    <div className="space-y-3">
+      {matched
+        .filter((m) => m.request_status !== "completed")
+        .map((m) => {
+          const isMatched = m.request_status === "matched";
+          const isPendingCompletion =
+            m.request_status === "pending_completion";
 
-                return (
-                  <div
-                    key={m.bid_id}
-                    onClick={() =>
-                      router.push(`/driver/requests/${m.request_id}`)
-                    }
-                    role="button"
-                    tabIndex={0}
-                    className={`block cursor-pointer rounded-2xl border-2 p-4 transition active:scale-[0.99] touch-manipulation ${
-                      isCompleted
-                        ? "border-gray-200 bg-gray-50"
-                        : isPendingCompletion
-                        ? "border-orange-200 bg-orange-50/50"
-                        : "border-mint-300 bg-mint-50/50"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1 mb-2">
-                      {isCompleted ? (
-                        <>
-                          <CheckCircle2 className="h-4 w-4 text-gray-500" />
-                          <span className="text-xs font-semibold text-gray-600">
-                            이사 완료
-                          </span>
-                        </>
-                      ) : isPendingCompletion ? (
-                        <>
-                          <Clock className="h-4 w-4 text-orange-600" />
-                          <span className="text-xs font-semibold text-orange-700">
-                            고객 확인 대기 중
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="h-4 w-4 text-mint-600" />
-                          <span className="text-xs font-semibold text-mint-700">
-                            매칭 완료
-                          </span>
-                        </>
-                      )}
-                      <span className="ml-auto text-xs text-gray-500">
-                        {new Date(m.matched_at).toLocaleDateString("ko-KR")}
-                      </span>
-                    </div>
+          return (
+            <div
+              key={m.bid_id}
+              onClick={() =>
+                router.push(`/driver/requests/${m.request_id}`)
+              }
+              role="button"
+              tabIndex={0}
+              className={`block cursor-pointer rounded-2xl border-2 p-4 transition active:scale-[0.99] touch-manipulation ${
+                isPendingCompletion
+                  ? "border-orange-200 bg-orange-50/50"
+                  : "border-mint-300 bg-mint-50/50"
+              }`}
+            >
+              <div className="flex items-center gap-1 mb-2">
+                {isPendingCompletion ? (
+                  <>
+                    <Clock className="h-4 w-4 text-orange-600" />
+                    <span className="text-xs font-semibold text-orange-700">
+                      고객 확인 대기 중
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-mint-600" />
+                    <span className="text-xs font-semibold text-mint-700">
+                      매칭 완료
+                    </span>
+                  </>
+                )}
+                <span className="ml-auto text-xs text-gray-500">
+                  {new Date(m.matched_at).toLocaleDateString("ko-KR")}
+                </span>
+              </div>
 
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 border">
-                        {SERVICE_TYPE_LABELS[m.service_type] || m.service_type}
-                      </span>
-                      <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 border">
-                        {MOVE_TYPE_LABELS[m.move_type] || m.move_type}
-                      </span>
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold text-white ${
-                          isCompleted ? "bg-gray-500" : "bg-mint-600"
-                        }`}
-                      >
-                        {m.price.toLocaleString()}원
-                      </span>
-                    </div>
+              <div className="flex flex-wrap gap-1 mb-2">
+                <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 border">
+                  {SERVICE_TYPE_LABELS[m.service_type] || m.service_type}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 border">
+                  {MOVE_TYPE_LABELS[m.move_type] || m.move_type}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-mint-600 px-2 py-0.5 text-[11px] font-bold text-white">
+                  {m.price.toLocaleString()}원
+                </span>
+              </div>
 
-                    <div className="space-y-1 text-sm text-gray-700 mb-3">
-                      <div className="flex items-start gap-1.5">
-                        <MapPin className="h-3.5 w-3.5 mt-0.5 text-gray-400 shrink-0" />
-                        <div className="min-w-0">
-                          <div className="truncate">출발: {m.from_address}</div>
-                          <div className="truncate">도착: {m.to_address}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                        <span>{m.preferred_date}</span>
-                        <Clock className="h-3.5 w-3.5 text-gray-400 ml-2" />
-                        <span>
-                          {TIME_SLOT_LABELS[m.time_slot] || m.time_slot}
-                        </span>
-                      </div>
-                      {m.box_count > 0 && (
-                        <div className="flex items-center gap-1.5">
-                          <Package className="h-3.5 w-3.5 text-gray-400" />
-                          <span>박스 {m.box_count}개</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-xl bg-white border p-3 mb-3">
-                      <div className="text-[11px] font-semibold text-gray-500 mb-1">
-                        고객 정보
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-sm">
-                            {m.customer_name}
-                          </div>
-                          <div className="text-xs text-gray-600">
-                            {m.customer_phone}
-                          </div>
-                        </div>
-                        {!isCompleted && (
-                          <a
-                            href={`tel:${m.customer_phone}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-1 rounded-full bg-mint-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-mint-700"
-                          >
-                            <Phone className="h-3 w-3" />
-                            전화
-                          </a>
-                        )}
-                      </div>
-                    </div>
-
-                    {m.notes && (
-                      <div className="text-xs text-gray-600 bg-white rounded-lg p-2 border mb-3">
-                        💬 {m.notes}
-                      </div>
-                    )}
-
-                    {isMatched && (
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleCompleteRequest(m.request_id, m.customer_name);
-                        }}
-                        disabled={completing === m.request_id}
-                        className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-mint-600 hover:bg-mint-700 text-white text-sm font-bold disabled:opacity-50"
-                      >
-                        {completing === m.request_id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <PackageCheck className="h-4 w-4" />
-                            이사 완료했어요
-                          </>
-                        )}
-                      </button>
-                    )}
-
-                    {isPendingCompletion && (
-                      <div className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-orange-100 text-orange-700 text-sm font-semibold">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        고객 확인 대기 중
-                      </div>
-                    )}
-
-                    {isCompleted && (
-                      <div className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-gray-200 text-gray-600 text-sm font-semibold">
-                        <CheckCircle2 className="h-4 w-4" />
-                        이사가 완료되었어요
-                      </div>
-                    )}
+              <div className="space-y-1 text-sm text-gray-700 mb-3">
+                <div className="flex items-start gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 mt-0.5 text-gray-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="truncate">출발: {m.from_address}</div>
+                    <div className="truncate">도착: {m.to_address}</div>
                   </div>
-                );
-              })}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-gray-400" />
+                  <span>{m.preferred_date}</span>
+                  <Clock className="h-3.5 w-3.5 text-gray-400 ml-2" />
+                  <span>
+                    {TIME_SLOT_LABELS[m.time_slot] || m.time_slot}
+                  </span>
+                </div>
+                {m.box_count > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <Package className="h-3.5 w-3.5 text-gray-400" />
+                    <span>박스 {m.box_count}개</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl bg-white border p-3 mb-3">
+                <div className="text-[11px] font-semibold text-gray-500 mb-1">
+                  고객 정보
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-sm">
+                      {m.customer_name}
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      {m.customer_phone}
+                    </div>
+                  </div>
+                  <a
+                    href={`tel:${m.customer_phone}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-1 rounded-full bg-mint-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-mint-700"
+                  >
+                    <Phone className="h-3 w-3" />
+                    전화
+                  </a>
+                </div>
+              </div>
+
+              {m.notes && (
+                <div className="text-xs text-gray-600 bg-white rounded-lg p-2 border mb-3">
+                  💬 {m.notes}
+                </div>
+              )}
+
+              {isMatched && (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleCompleteRequest(m.request_id, m.customer_name);
+                  }}
+                  disabled={completing === m.request_id}
+                  className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-mint-600 hover:bg-mint-700 text-white text-sm font-bold disabled:opacity-50"
+                >
+                  {completing === m.request_id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <PackageCheck className="h-4 w-4" />
+                      이사 완료했어요
+                    </>
+                  )}
+                </button>
+              )}
+
+              {isPendingCompletion && (
+                <div className="flex items-center justify-center gap-1.5 w-full h-11 rounded-xl bg-orange-100 text-orange-700 text-sm font-semibold">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  고객 확인 대기 중
+                </div>
+              )}
             </div>
-          </section>
-        )}
+          );
+        })}
+    </div>
+  </section>
+)}
+
+{/* ✅ 이전 이사 내역 (펼치기/접기) */}
+{matched.filter((m) => m.request_status === "completed").length > 0 && (
+  <section>
+    <button
+      onClick={() => setShowCompleted((v) => !v)}
+      className="flex items-center justify-between w-full mb-3"
+    >
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4 text-gray-500" />
+        <h2 className="font-semibold text-sm text-gray-700">
+          이전 이사 내역 (
+          {matched.filter((m) => m.request_status === "completed").length}건)
+        </h2>
+      </div>
+      <span className="text-xs text-gray-500">
+        {showCompleted ? "접기" : "펼치기"}
+      </span>
+    </button>
+
+    {showCompleted && (
+      <div className="space-y-2">
+        {matched
+          .filter((m) => m.request_status === "completed")
+          .map((m) => (
+            <div
+              key={m.bid_id}
+              onClick={() =>
+                router.push(`/driver/requests/${m.request_id}`)
+              }
+              role="button"
+              tabIndex={0}
+              className="block cursor-pointer rounded-2xl border border-gray-200 bg-gray-50 p-4 opacity-80 active:scale-[0.99] touch-manipulation"
+            >
+              <div className="flex items-center gap-1 mb-2">
+                <CheckCircle2 className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-xs font-semibold text-gray-600">
+                  이사 완료
+                </span>
+                <span className="ml-auto text-xs text-gray-500">
+                  {new Date(m.matched_at).toLocaleDateString("ko-KR")}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-1 mb-2">
+                <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 border">
+                  {SERVICE_TYPE_LABELS[m.service_type] || m.service_type}
+                </span>
+                <span className="inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 border">
+                  {MOVE_TYPE_LABELS[m.move_type] || m.move_type}
+                </span>
+                <span className="inline-flex rounded-full bg-gray-300 px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                  {m.price.toLocaleString()}원
+                </span>
+              </div>
+
+              <div className="space-y-1 text-xs text-gray-600">
+                <div className="flex items-start gap-1.5">
+                  <MapPin className="h-3 w-3 mt-0.5 text-gray-400 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="truncate">출발: {m.from_address}</div>
+                    <div className="truncate">도착: {m.to_address}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-gray-500">고객:</span>
+                  <span>{m.customer_name}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+      </div>
+    )}
+  </section>
+)}
+
 
         {/* 😢 선정되지 않은 입찰 (접기/펼치기) */}
         {rejected.length > 0 && (
