@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useRequestStore, type TimeSlot } from "@/stores/requestStore";
+import { MoveDateCalendar } from "@/components/common/MoveDateCalendar";
+import { getDateInfo } from "@/lib/calendar/date-info";
 
 const TIME_SLOTS: { value: TimeSlot; label: string; desc: string }[] = [
   { value: "morning", label: "오전", desc: "08:00 ~ 12:00" },
@@ -22,18 +24,14 @@ export default function Step3SchedulePage() {
   const [timeSlot, setTimeSlot] = useState<TimeSlot>(store.timeSlot);
   const [isUrgent, setIsUrgent] = useState(store.isUrgent);
 
-  // 오늘부터 60일 후까지 선택 가능
-  const today = new Date().toISOString().split("T")[0];
-  const maxDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
+  // 선택한 날짜의 가격 정보
+  const selectedInfo = preferredDate ? getDateInfo(new Date(preferredDate)) : null;
 
   const handleNext = () => {
     if (!preferredDate) {
       toast.error("이사 날짜를 선택해주세요");
       return;
     }
-
     store.setStep3({ preferredDate, timeSlot, isUrgent });
     router.push("/request/confirm");
   };
@@ -45,19 +43,36 @@ export default function Step3SchedulePage() {
         <p className="text-sm text-gray-500">날짜와 시간대를 선택해주세요</p>
       </div>
 
-      {/* 날짜 선택 */}
+      {/* 날짜 선택 - 커스텀 달력 */}
       <div className="space-y-2">
-        <Label htmlFor="date">이사 날짜</Label>
-        <input
-          id="date"
-          type="date"
-          min={today}
-          max={maxDate}
+        <Label>이사 날짜</Label>
+        <MoveDateCalendar
           value={preferredDate}
-          onChange={(e) => setPreferredDate(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-base focus:border-mint-500 focus:outline-none"
+          onChange={setPreferredDate}
+          maxDaysAhead={60}
         />
         <p className="text-xs text-gray-500">오늘부터 최대 60일 이후까지 선택 가능</p>
+
+        {/* 선택한 날짜 가격 안내 */}
+        {selectedInfo && selectedInfo.priceMultiplier > 1 && (
+          <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-4">
+            <p className="text-sm font-semibold text-amber-900 mb-1">
+              💡 이날은 평소보다 비쌀 수 있어요
+            </p>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              {selectedInfo.badges.map((b) => b.label).join(" · ")} 이라{" "}
+              기사님이 약 <strong>{selectedInfo.priceLabel}</strong> 정도 높게 입찰할 수 있어요.
+              비용을 아끼려면 평일을 추천해요.
+            </p>
+          </div>
+        )}
+        {selectedInfo && selectedInfo.priceMultiplier === 1 && (
+          <div className="mt-3 rounded-xl bg-mint-50 border border-mint-200 p-4">
+            <p className="text-sm font-semibold text-mint-700">
+              ✅ 합리적인 가격에 이사할 수 있는 날이에요
+            </p>
+          </div>
+        )}
       </div>
 
       {/* 시간대 */}

@@ -13,11 +13,14 @@ import { signUp, type UserRole } from "@/lib/supabase/auth";
 function SignUpContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialRole = (searchParams.get("role") as UserRole) || "customer";
+  const initialRole = searchParams.get("role") as UserRole | null;
 
-  const [step, setStep] = useState<"role" | "form">(initialRole === "driver" ? "form" : "role");
-  const [role, setRole] = useState<UserRole>(initialRole);
-  const [loading, setLoading] = useState(false);
+const [step, setStep] = useState<"role" | "form">(
+  initialRole === "driver" || initialRole === "customer" ? "form" : "role"
+);
+const [role, setRole] = useState<UserRole | null>(initialRole);
+const [loading, setLoading] = useState(false);
+
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -31,12 +34,13 @@ function SignUpContent() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!name || !phone || !email || !password) {
-      toast.error("모든 항목을 입력해주세요");
-      return;
-    }
+  if (!role) {
+    toast.error("가입 유형을 선택해주세요");
+    setStep("role");
+    return;
+  }
 
     if (password.length < 6) {
       toast.error("비밀번호는 6자 이상이어야 합니다");
@@ -143,7 +147,8 @@ function SignUpContent() {
       <div className="px-5 pt-4 pb-10">
         <div className="mb-6">
           <div className="inline-block rounded-full bg-mint-50 px-3 py-1 text-xs font-semibold text-mint-700 mb-3">
-            {role === "customer" ? "👤 이사 고객" : "🚚 화물 기사"}
+            {role === "customer" ? "👤 이사 고객" : role === "driver" ? "🚚 화물 기사" : ""}
+
           </div>
           <h1 className="text-2xl font-bold mb-2">회원가입</h1>
           <p className="text-gray-600 text-sm">
