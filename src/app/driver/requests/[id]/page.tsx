@@ -24,6 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { createClient } from "@/lib/supabase/client";
+import { getDateInfo } from "@/lib/calendar/date-info";
+
 
 interface MoveRequest {
   id: string;
@@ -335,6 +337,9 @@ export default function DriverRequestDetailPage() {
   }
 
   if (!request) return null;
+  // 손없는날/공휴일/주말 정보
+const dateInfo = getDateInfo(new Date(request.preferred_date));
+
 
   const isMatched = request.status === "matched";
   const isPendingCompletion = request.status === "pending_completion";
@@ -500,16 +505,60 @@ export default function DriverRequestDetailPage() {
         </div>
 
         {/* 일정 */}
-        <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
-          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
-            <Calendar className="h-3.5 w-3.5" />
-            희망 일정
-          </div>
-          <div className="text-sm font-medium text-gray-900">
-            {request.preferred_date} ·{" "}
-            {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot}
-          </div>
-        </div>
+<div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
+  <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+    <Calendar className="h-3.5 w-3.5" />
+    희망 일정
+  </div>
+  <div className="text-sm font-medium text-gray-900 mb-2">
+    {request.preferred_date} ·{" "}
+    {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot}
+  </div>
+
+  {/* 손없는날/공휴일/주말 배지 */}
+  {dateInfo.badges.length > 0 && (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {dateInfo.badges.map((b, i) => (
+        <span
+          key={i}
+          className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+            b.type === "lucky"
+              ? "bg-green-100 text-green-700"
+              : b.type === "holiday"
+              ? "bg-red-100 text-red-700"
+              : "bg-blue-100 text-blue-700"
+          }`}
+        >
+          {b.type === "lucky" ? "🍀 " : b.type === "holiday" ? "🎌 " : ""}
+          {b.label}
+        </span>
+      ))}
+    </div>
+  )}
+
+  {/* 가격 가이드 안내 박스 */}
+  {dateInfo.priceMultiplier > 1 && (
+    <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+      <p className="text-xs font-bold text-amber-900 mb-1">
+        💡 시세보다 높게 입찰해도 좋은 날이에요
+      </p>
+      <p className="text-[11px] text-amber-800 leading-relaxed">
+        {dateInfo.badges.map((b) => b.label).join(" · ")} 이라
+        고객도 평소보다 약 <strong>{dateInfo.priceLabel}</strong> 정도
+        높은 가격을 예상하고 있어요.
+        {dateInfo.isLuckyDay && " 손없는날은 수요가 많으니 자신 있게 입찰하세요."}
+      </p>
+    </div>
+  )}
+  {dateInfo.priceMultiplier === 1 && (
+    <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 p-3">
+      <p className="text-[11px] text-gray-600">
+        평일 일반 날짜예요. 시세에 맞춰 합리적으로 입찰해보세요.
+      </p>
+    </div>
+  )}
+</div>
+
 
         {/* 가구/짐 */}
         <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
