@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { useRequestStore } from "@/stores/requestStore";
 import { useAuth } from "@/hooks/useAuth";
 import { createClient } from "@/lib/supabase/client";
+import {
+  FURNITURE_CONFIG,
+  summarizeFurniture,
+} from "@/lib/constants/furniture-options";
 
 const MOVE_TYPE_LABELS: Record<string, string> = {
   one_room: "원룸",
@@ -20,19 +24,6 @@ const SERVICE_TYPE_LABELS: Record<string, string> = {
   general: "일반 이사",
   half_packing: "반포장 이사",
   full_packing: "포장 이사",
-};
-
-const FURNITURE_LABELS: Record<string, string> = {
-  bed: "침대",
-  wardrobe: "옷장",
-  desk: "책상",
-  chair: "의자",
-  fridge: "냉장고",
-  washer: "세탁기",
-  tv: "TV",
-  sofa: "소파",
-  table: "식탁",
-  bookshelf: "책장",
 };
 
 const TIME_SLOT_LABELS: Record<string, string> = {
@@ -79,6 +70,7 @@ export default function Step4ConfirmPage() {
         service_type: store.serviceType,
         move_type: store.moveType,
         furniture_items: store.furnitureItems,
+        furniture_details: store.furnitureDetails, // ← 추가
         box_count: store.boxCount,
         notes: store.notes,
         preferred_date: store.preferredDate,
@@ -110,7 +102,6 @@ export default function Step4ConfirmPage() {
         <p className="text-sm text-gray-500">입력하신 내용을 확인해주세요</p>
       </div>
 
-      {/* 안내 박스 (기존 가격 박스 대체) */}
       <div className="rounded-2xl bg-gradient-to-br from-mint-500 to-mint-600 p-6 text-white">
         <div className="flex items-center gap-2 mb-2">
           <Sparkles className="h-5 w-5" />
@@ -144,16 +135,31 @@ export default function Step4ConfirmPage() {
               {store.moveType ? MOVE_TYPE_LABELS[store.moveType] : "-"}
             </span>
           </div>
-          {store.furnitureItems.length > 0 && (
-            <div>
-              <span className="text-gray-400">가구</span>{" "}
-              <span className="text-gray-900">
-                {store.furnitureItems
-                  .map((f) => FURNITURE_LABELS[f] ?? f)
-                  .join(", ")}
-              </span>
+
+          {/* 가구 상세 표시 */}
+          {store.furnitureDetails && store.furnitureDetails.length > 0 && (
+            <div className="pt-2">
+              <div className="text-gray-400 mb-1.5">가구</div>
+              <div className="space-y-1.5 pl-2">
+                {store.furnitureDetails.map((d) => {
+                  const config = FURNITURE_CONFIG[d.type];
+                  const summary = summarizeFurniture(d);
+                  return (
+                    <div key={d.type} className="flex items-start gap-2 text-xs">
+                      <span className="text-base leading-none">{config.emoji}</span>
+                      <div>
+                        <span className="font-medium text-gray-900">{config.label}</span>
+                        {summary !== "옵션 미선택" && (
+                          <span className="ml-1.5 text-gray-500">· {summary}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
+
           <div>
             <span className="text-gray-400">박스</span>{" "}
             <span className="text-gray-900">{store.boxCount}개</span>

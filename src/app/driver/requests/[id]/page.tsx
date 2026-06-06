@@ -25,7 +25,12 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { createClient } from "@/lib/supabase/client";
 import { getDateInfo } from "@/lib/calendar/date-info";
-
+import {
+  FURNITURE_CONFIG,
+  summarizeFurniture,
+  type FurnitureDetail,
+  type FurnitureType,
+} from "@/lib/constants/furniture-options";
 
 interface MoveRequest {
   id: string;
@@ -43,6 +48,7 @@ interface MoveRequest {
   service_type: "general" | "half_packing" | "full_packing" | null;
   move_type: string;
   furniture_items: string[] | null;
+  furniture_details: FurnitureDetail[] | null;
   box_count: number;
   notes: string | null;
   preferred_date: string;
@@ -260,7 +266,6 @@ export default function DriverRequestDetailPage() {
     }
   };
 
-  // 입찰 철회 (pending 상태)
   const handleWithdraw = async () => {
     if (!myBid) return;
     if (myBid.status !== "pending") {
@@ -294,7 +299,6 @@ export default function DriverRequestDetailPage() {
     setTimeout(() => router.push("/driver/requests"), 600);
   };
 
-  // 이사 완료 요청 (matched → pending_completion)
   const handleComplete = async () => {
     if (!request || !myBid) return;
     if (request.status !== "matched") {
@@ -337,9 +341,8 @@ export default function DriverRequestDetailPage() {
   }
 
   if (!request) return null;
-  // 손없는날/공휴일/주말 정보
-const dateInfo = getDateInfo(new Date(request.preferred_date));
 
+  const dateInfo = getDateInfo(new Date(request.preferred_date));
 
   const isMatched = request.status === "matched";
   const isPendingCompletion = request.status === "pending_completion";
@@ -358,7 +361,6 @@ const dateInfo = getDateInfo(new Date(request.preferred_date));
     !isInProgress &&
     !isDeadlinePassed;
 
-  // 내가 선택된 기사인지: bid.status가 selected이거나, request.selected_bid_id가 내 bid id
   const myBidSelected =
     myBid?.status === "selected" ||
     (myBid && request.selected_bid_id === myBid.id);
@@ -505,78 +507,107 @@ const dateInfo = getDateInfo(new Date(request.preferred_date));
         </div>
 
         {/* 일정 */}
-<div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
-  <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
-    <Calendar className="h-3.5 w-3.5" />
-    희망 일정
-  </div>
-  <div className="text-sm font-medium text-gray-900 mb-2">
-    {request.preferred_date} ·{" "}
-    {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot}
-  </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
+          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+            <Calendar className="h-3.5 w-3.5" />
+            희망 일정
+          </div>
+          <div className="text-sm font-medium text-gray-900 mb-2">
+            {request.preferred_date} ·{" "}
+            {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot}
+          </div>
 
-  {/* 손없는날/공휴일/주말 배지 */}
-  {dateInfo.badges.length > 0 && (
-    <div className="flex flex-wrap gap-1.5 mt-2">
-      {dateInfo.badges.map((b, i) => (
-        <span
-          key={i}
-          className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
-            b.type === "lucky"
-              ? "bg-green-100 text-green-700"
-              : b.type === "holiday"
-              ? "bg-red-100 text-red-700"
-              : "bg-blue-100 text-blue-700"
-          }`}
-        >
-          {b.type === "lucky" ? "🍀 " : b.type === "holiday" ? "🎌 " : ""}
-          {b.label}
-        </span>
-      ))}
-    </div>
-  )}
+          {dateInfo.badges.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {dateInfo.badges.map((b, i) => (
+                <span
+                  key={i}
+                  className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                    b.type === "lucky"
+                      ? "bg-green-100 text-green-700"
+                      : b.type === "holiday"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-blue-100 text-blue-700"
+                  }`}
+                >
+                  {b.type === "lucky" ? "🍀 " : b.type === "holiday" ? "🎌 " : ""}
+                  {b.label}
+                </span>
+              ))}
+            </div>
+          )}
 
-  {/* 가격 가이드 안내 박스 */}
-  {dateInfo.priceMultiplier > 1 && (
-    <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
-      <p className="text-xs font-bold text-amber-900 mb-1">
-        💡 시세보다 높게 입찰해도 좋은 날이에요
-      </p>
-      <p className="text-[11px] text-amber-800 leading-relaxed">
-        {dateInfo.badges.map((b) => b.label).join(" · ")} 이라
-        고객도 평소보다 약 <strong>{dateInfo.priceLabel}</strong> 정도
-        높은 가격을 예상하고 있어요.
-        {dateInfo.isLuckyDay && " 손없는날은 수요가 많으니 자신 있게 입찰하세요."}
-      </p>
-    </div>
-  )}
-  {dateInfo.priceMultiplier === 1 && (
-    <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 p-3">
-      <p className="text-[11px] text-gray-600">
-        평일 일반 날짜예요. 시세에 맞춰 합리적으로 입찰해보세요.
-      </p>
-    </div>
-  )}
-</div>
-
+          {dateInfo.priceMultiplier > 1 && (
+            <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+              <p className="text-xs font-bold text-amber-900 mb-1">
+                💡 시세보다 높게 입찰해도 좋은 날이에요
+              </p>
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                {dateInfo.badges.map((b) => b.label).join(" · ")} 이라
+                고객도 평소보다 약 <strong>{dateInfo.priceLabel}</strong> 정도
+                높은 가격을 예상하고 있어요.
+                {dateInfo.isLuckyDay && " 손없는날은 수요가 많으니 자신 있게 입찰하세요."}
+              </p>
+            </div>
+          )}
+          {dateInfo.priceMultiplier === 1 && (
+            <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 p-3">
+              <p className="text-[11px] text-gray-600">
+                평일 일반 날짜예요. 시세에 맞춰 합리적으로 입찰해보세요.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* 가구/짐 */}
         <div className="rounded-2xl border border-gray-100 bg-white p-4 mb-3">
           <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
             <Package className="h-3.5 w-3.5" />짐 정보
           </div>
-          {request.furniture_items && request.furniture_items.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {request.furniture_items.map((item) => (
-                <span
-                  key={item}
-                  className="inline-block rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700"
-                >
-                  {FURNITURE_LABELS[item] ?? item}
-                </span>
-              ))}
+
+          {/* 가구 상세 옵션이 있으면 우선 표시 */}
+          {request.furniture_details && request.furniture_details.length > 0 ? (
+            <div className="space-y-2 mb-3">
+              {request.furniture_details.map((d) => {
+                const config = FURNITURE_CONFIG[d.type as FurnitureType];
+                if (!config) return null;
+                const summary = summarizeFurniture(d);
+                return (
+                  <div
+                    key={d.type}
+                    className="flex items-start gap-2 rounded-xl bg-gray-50 px-3 py-2"
+                  >
+                    <span className="text-lg leading-none mt-0.5">{config.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-gray-900">
+                        {config.label}
+                      </div>
+                      {summary !== "옵션 미선택" && (
+                        <div className="text-xs text-gray-600 mt-0.5">
+                          {summary}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+          ) : (
+            request.furniture_items &&
+            request.furniture_items.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {request.furniture_items.map((item) => (
+                  <span
+                    key={item}
+                    className="inline-block rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700"
+                  >
+                    {FURNITURE_LABELS[item] ?? item}
+                  </span>
+                ))}
+              </div>
+            )
           )}
+
           <div className="text-sm text-gray-700">
             박스 {request.box_count}개
           </div>
@@ -772,7 +803,6 @@ const dateInfo = getDateInfo(new Date(request.preferred_date));
               </p>
             </div>
 
-            {/* 입찰 철회 버튼 */}
             {canWithdraw && (
               <div className="mt-5 pt-4 border-t border-mint-200">
                 <button
