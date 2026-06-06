@@ -14,19 +14,24 @@ export default function Step1AddressPage() {
 
   const [fromAddress, setFromAddress] = useState(store.fromAddress);
   const [fromAddressDetail, setFromAddressDetail] = useState(store.fromAddressDetail);
-  const [fromFloor, setFromFloor] = useState(store.fromFloor);
+  const [fromFloor, setFromFloor] = useState<number | "">(store.fromFloor ?? "");
   const [fromHasElevator, setFromHasElevator] = useState(store.fromHasElevator);
   const [fromNeedsLadder, setFromNeedsLadder] = useState(store.fromNeedsLadder);
 
   const [toAddress, setToAddress] = useState(store.toAddress);
   const [toAddressDetail, setToAddressDetail] = useState(store.toAddressDetail);
-  const [toFloor, setToFloor] = useState(store.toFloor);
+  const [toFloor, setToFloor] = useState<number | "">(store.toFloor ?? "");
   const [toHasElevator, setToHasElevator] = useState(store.toHasElevator);
   const [toNeedsLadder, setToNeedsLadder] = useState(store.toNeedsLadder);
 
   const handleNext = () => {
     if (!fromAddress.trim() || !toAddress.trim()) {
       toast.error("출발지와 도착지 주소를 모두 입력해주세요");
+      return;
+    }
+
+    if (fromFloor === "" || toFloor === "") {
+      toast.error("출발지와 도착지 층수를 입력해주세요");
       return;
     }
 
@@ -89,8 +94,12 @@ export default function Step1AddressPage() {
             type="number"
             min={-3}
             max={50}
+            placeholder="층수를 입력해주세요"
             value={fromFloor}
-            onChange={(e) => setFromFloor(Number(e.target.value))}
+            onChange={(e) => {
+              const v = e.target.value;
+              setFromFloor(v === "" ? "" : Number(v));
+            }}
           />
         </div>
 
@@ -154,8 +163,12 @@ export default function Step1AddressPage() {
             type="number"
             min={-3}
             max={50}
+            placeholder="층수를 입력해주세요"
             value={toFloor}
-            onChange={(e) => setToFloor(Number(e.target.value))}
+            onChange={(e) => {
+              const v = e.target.value;
+              setToFloor(v === "" ? "" : Number(v));
+            }}
           />
         </div>
 
