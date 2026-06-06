@@ -9,8 +9,13 @@ import {
   useRequestStore,
   type MoveType,
   type ServiceType,
-  type FurnitureItem,
 } from "@/stores/requestStore";
+import {
+  FURNITURE_CONFIG,
+  type FurnitureType,
+  type FurnitureDetail,
+  summarizeFurniture,
+} from "@/lib/constants/furniture-options";
 
 const SERVICE_TYPES: {
   value: ServiceType;
@@ -45,17 +50,9 @@ const MOVE_TYPES: { value: MoveType; label: string; desc: string }[] = [
   { value: "small_office", label: "소형 사무실", desc: "10평 이하 사무실" },
 ];
 
-const FURNITURE_LIST: { value: FurnitureItem; label: string; emoji: string }[] = [
-  { value: "bed", label: "침대", emoji: "🛏️" },
-  { value: "wardrobe", label: "옷장", emoji: "🚪" },
-  { value: "desk", label: "책상", emoji: "🪑" },
-  { value: "chair", label: "의자", emoji: "💺" },
-  { value: "fridge", label: "냉장고", emoji: "🧊" },
-  { value: "washer", label: "세탁기", emoji: "🧺" },
-  { value: "tv", label: "TV", emoji: "📺" },
-  { value: "sofa", label: "소파", emoji: "🛋️" },
-  { value: "table", label: "식탁", emoji: "🍽️" },
-  { value: "bookshelf", label: "책장", emoji: "📚" },
+const FURNITURE_ORDER: FurnitureType[] = [
+  "bed", "wardrobe", "desk", "chair", "fridge",
+  "washer", "tv", "sofa", "table", "bookshelf",
 ];
 
 export default function Step2ItemsPage() {
@@ -64,14 +61,37 @@ export default function Step2ItemsPage() {
 
   const [serviceType, setServiceType] = useState<ServiceType | null>(store.serviceType);
   const [moveType, setMoveType] = useState<MoveType | null>(store.moveType);
-  const [furniture, setFurniture] = useState<FurnitureItem[]>(store.furnitureItems);
+  const [details, setDetails] = useState<FurnitureDetail[]>(store.furnitureDetails ?? []);
   const [boxCount, setBoxCount] = useState(store.boxCount);
   const [notes, setNotes] = useState(store.notes);
 
-  const toggleFurniture = (item: FurnitureItem) => {
-    setFurniture((prev) =>
-      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
-    );
+  // 옵션 모달 상태
+  const [editingType, setEditingType] = useState<FurnitureType | null>(null);
+  const [editingOptions, setEditingOptions] = useState<Record<string, string>>({});
+
+  const isSelected = (type: FurnitureType) =>
+    details.some((d) => d.type === type);
+
+  const openOptions = (type: FurnitureType) => {
+    const existing = details.find((d) => d.type === type);
+    setEditingType(type);
+    setEditingOptions(existing?.options ?? {});
+  };
+
+  const saveOptions = () => {
+    if (!editingType) return;
+    setDetails((prev) => {
+      const without = prev.filter((d) => d.type !== editingType);
+      return [...without, { type: editingType, options: editingOptions }];
+    });
+    setEditingType(null);
+    setEditingOptions({});
+  };
+
+  const removeFurniture = (type: FurnitureType) => {
+    setDetails((prev) => prev.filter((d) => d.type !== type));
+    setEditingType(null);
+    setEditingOptions({});
   };
 
   const handleNext = () => {
@@ -86,7 +106,8 @@ export default function Step2ItemsPage() {
     store.setStep2({
       serviceType,
       moveType,
-      furnitureItems: furniture,
+      furnitureItems: details.map((d) => d.type), // 기존 호환
+      furnitureDetails: details,
       boxCount,
       notes,
     });
@@ -100,7 +121,7 @@ export default function Step2ItemsPage() {
         <p className="text-sm text-gray-500">정확할수록 견적이 정확해져요</p>
       </div>
 
-      {/* 이사 종류 (서비스 유형) */}
+      {/* 이사 종류 */}
       <div className="space-y-3">
         <div>
           <Label>이사 종류</Label>
@@ -116,9 +137,7 @@ export default function Step2ItemsPage() {
                 key={type.value}
                 onClick={() => setServiceType(type.value)}
                 className={`w-full rounded-2xl border p-4 text-left transition ${
-                  selected
-                    ? "border-mint-500 bg-mint-50"
-                    : "border-gray-200 bg-white"
+                  selected ? "border-mint-500 bg-mint-50" : "border-gray-200 bg-white"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -131,14 +150,10 @@ export default function Step2ItemsPage() {
                   </div>
                   <div
                     className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-                      selected
-                        ? "border-mint-500 bg-mint-500"
-                        : "border-gray-300 bg-white"
+                      selected ? "border-mint-500 bg-mint-500" : "border-gray-300 bg-white"
                     }`}
                   >
-                    {selected && (
-                      <div className="h-2 w-2 rounded-full bg-white" />
-                    )}
+                    {selected && <div className="h-2 w-2 rounded-full bg-white" />}
                   </div>
                 </div>
               </button>
@@ -147,7 +162,7 @@ export default function Step2ItemsPage() {
         </div>
       </div>
 
-      {/* 이사 유형 (공간 크기) */}
+      {/* 공간 크기 */}
       <div className="space-y-3">
         <Label>공간 크기</Label>
         <div className="grid grid-cols-2 gap-2">
@@ -156,9 +171,7 @@ export default function Step2ItemsPage() {
               key={type.value}
               onClick={() => setMoveType(type.value)}
               className={`rounded-xl border p-4 text-left transition ${
-                moveType === type.value
-                  ? "border-mint-500 bg-mint-50"
-                  : "border-gray-200 bg-white"
+                moveType === type.value ? "border-mint-500 bg-mint-50" : "border-gray-200 bg-white"
               }`}
             >
               <div className="font-bold text-gray-900">{type.label}</div>
@@ -170,22 +183,32 @@ export default function Step2ItemsPage() {
 
       {/* 가구 체크리스트 */}
       <div className="space-y-3">
-        <Label>주요 가구 (해당되는 항목 선택)</Label>
+        <div>
+          <Label>주요 가구</Label>
+          <p className="mt-1 text-xs text-gray-400">
+            가구를 선택하면 사이즈·종류 등 상세 정보를 입력할 수 있어요
+          </p>
+        </div>
         <div className="grid grid-cols-3 gap-2">
-          {FURNITURE_LIST.map((item) => {
-            const selected = furniture.includes(item.value);
+          {FURNITURE_ORDER.map((type) => {
+            const config = FURNITURE_CONFIG[type];
+            const selected = isSelected(type);
+            const detail = details.find((d) => d.type === type);
             return (
               <button
-                key={item.value}
-                onClick={() => toggleFurniture(item.value)}
+                key={type}
+                onClick={() => openOptions(type)}
                 className={`flex flex-col items-center gap-1 rounded-xl border p-3 transition ${
-                  selected
-                    ? "border-mint-500 bg-mint-50"
-                    : "border-gray-200 bg-white"
+                  selected ? "border-mint-500 bg-mint-50" : "border-gray-200 bg-white"
                 }`}
               >
-                <span className="text-2xl">{item.emoji}</span>
-                <span className="text-xs font-medium text-gray-700">{item.label}</span>
+                <span className="text-2xl">{config.emoji}</span>
+                <span className="text-xs font-medium text-gray-700">{config.label}</span>
+                {selected && detail && (
+                  <span className="line-clamp-2 text-[10px] leading-tight text-mint-700">
+                    {summarizeFurniture(detail)}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -231,6 +254,81 @@ export default function Step2ItemsPage() {
       >
         다음
       </Button>
+
+      {/* 가구 옵션 모달 */}
+      {editingType && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
+          onClick={() => setEditingType(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-6 sm:rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold">
+                {FURNITURE_CONFIG[editingType].emoji}{" "}
+                {FURNITURE_CONFIG[editingType].label} 정보
+              </h3>
+              <button
+                onClick={() => setEditingType(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] space-y-5 overflow-y-auto">
+              {FURNITURE_CONFIG[editingType].options.map((opt) => (
+                <div key={opt.key} className="space-y-2">
+                  <Label className="text-sm">{opt.label}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {opt.choices.map((choice) => {
+                      const selected = editingOptions[opt.key] === choice;
+                      return (
+                        <button
+                          key={choice}
+                          onClick={() =>
+                            setEditingOptions((prev) => ({
+                              ...prev,
+                              [opt.key]: choice,
+                            }))
+                          }
+                          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                            selected
+                              ? "border-mint-500 bg-mint-500 text-white"
+                              : "border-gray-200 bg-white text-gray-700"
+                          }`}
+                        >
+                          {choice}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              {isSelected(editingType) && (
+                <Button
+                  onClick={() => removeFurniture(editingType)}
+                  variant="outline"
+                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                >
+                  삭제
+                </Button>
+              )}
+              <Button
+                onClick={saveOptions}
+                className="flex-1 bg-mint-500 hover:bg-mint-600 text-white"
+              >
+                {isSelected(editingType) ? "수정 완료" : "추가"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
