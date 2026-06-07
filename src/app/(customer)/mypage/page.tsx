@@ -106,6 +106,8 @@ export default function MyPage() {
 
   const isDriver = profile.role === "driver";
   const verificationLevel = profile.verification_level ?? "unverified";
+  const isAdmin = profile.role === "admin";
+
   const verifyConfig =
     VERIFICATION_LABELS[verificationLevel] ?? VERIFICATION_LABELS.unverified;
   const VerifyIcon = verifyConfig.icon;
@@ -177,9 +179,22 @@ export default function MyPage() {
           </div>
         </div>
 
-        {/* 메뉴 */}
+                {/* 메뉴 */}
         <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden mb-4">
-          {!isDriver ? (
+          {isAdmin ? (
+            <Link
+              href="/admin/verifications"
+              className="flex items-center justify-between px-4 py-3.5 hover:bg-gray-50 transition"
+            >
+              <div className="flex items-center gap-3">
+                <Shield className="h-5 w-5 text-orange-600" />
+                <span className="text-sm font-medium text-gray-800">
+                  기사 인증 심사
+                </span>
+              </div>
+              <ChevronRight className="h-4 w-4 text-gray-400" />
+            </Link>
+          ) : !isDriver ? (
             <Link
               href="/my/requests"
               className="flex items-center justify-between px-4 py-3.5 hover:bg-gray-50 transition"
@@ -206,7 +221,8 @@ export default function MyPage() {
                 </div>
                 <ChevronRight className="h-4 w-4 text-gray-400" />
               </Link>
-              {verificationLevel === "unverified" && (
+              {(verificationLevel === "unverified" ||
+                verificationLevel === "pending") && (
                 <Link
                   href="/driver/verify"
                   className="flex items-center justify-between px-4 py-3.5 hover:bg-gray-50 transition"
@@ -214,7 +230,9 @@ export default function MyPage() {
                   <div className="flex items-center gap-3">
                     <Shield className="h-5 w-5 text-mint-600" />
                     <span className="text-sm font-medium text-gray-800">
-                      기사 인증 받기
+                      {verificationLevel === "pending"
+                        ? "인증 심사 중"
+                        : "기사 인증 받기"}
                     </span>
                   </div>
                   <ChevronRight className="h-4 w-4 text-gray-400" />
@@ -223,6 +241,7 @@ export default function MyPage() {
             </>
           )}
         </div>
+
 
         {/* 로그아웃 */}
         <button
