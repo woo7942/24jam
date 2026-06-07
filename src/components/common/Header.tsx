@@ -369,7 +369,7 @@ setMatchedCount(activeMatchedCount);
 
           {/* 사용자 이름 (모바일/PC 공통) */}
           <Link
-            href="/my/requests"
+            href="/mypage"
             className="flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 transition whitespace-nowrap"
           >
             <UserIcon className="h-3.5 w-3.5" />
