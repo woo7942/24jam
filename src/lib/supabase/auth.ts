@@ -126,3 +126,18 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
 
   return profile as UserProfile | null;
 }
+
+// 회원 탈퇴 ← 여기 새로 추가
+export async function deleteMyAccount() {
+  const supabase = createClient();
+
+  const { error } = await supabase.rpc("delete_my_account");
+
+  if (error) {
+    return { error };
+  }
+
+  await supabase.auth.signOut();
+
+  return { error: null };
+}
