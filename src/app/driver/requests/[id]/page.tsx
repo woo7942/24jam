@@ -31,6 +31,7 @@ import {
   type FurnitureDetail,
   type FurnitureType,
 } from "@/lib/constants/furniture-options";
+import { VerificationBanner } from "@/components/driver/VerificationBanner";
 
 interface MoveRequest {
   id: string;
@@ -193,8 +194,27 @@ export default function DriverRequestDetailPage() {
     loadData();
   }, [user, profile, authLoading, requestId, router]);
 
+  // 인증 상태 체크
+  const verificationLevel = profile?.verification_level as
+    | "unverified"
+    | "pending"
+    | "verified"
+    | "veteran"
+    | null;
+  const isVerified =
+    verificationLevel === "verified" || verificationLevel === "veteran";
+
   const handleSubmit = async () => {
     if (!user || !request) return;
+
+    // 인증 체크
+    if (!isVerified) {
+      toast.error(
+        "기사 인증 후 입찰할 수 있어요. 마이페이지에서 서류를 제출해주세요"
+      );
+      router.push("/driver/verify");
+      return;
+    }
 
     if (request.status !== "open") {
       toast.error("이미 매칭이 완료되었거나 종료된 요청입니다");
@@ -359,7 +379,8 @@ export default function DriverRequestDetailPage() {
     !isCancelled &&
     !isExpired &&
     !isInProgress &&
-    !isDeadlinePassed;
+    !isDeadlinePassed &&
+    isVerified;
 
   const myBidSelected =
     myBid?.status === "selected" ||
@@ -368,6 +389,17 @@ export default function DriverRequestDetailPage() {
   const myBidWithdrawn = myBid?.status === "withdrawn";
   const myBidCancelled = myBid?.status === "cancelled";
   const canWithdraw = myBid?.status === "pending" && canBid;
+
+  // 미인증 기사 + 활성 상태 요청에 배너 표시
+  const showVerificationBanner =
+    !isVerified &&
+    !isMatched &&
+    !isPendingCompletion &&
+    !isCompleted &&
+    !isCancelled &&
+    !isExpired &&
+    !isInProgress &&
+    !isDeadlinePassed;
 
   return (
     <div className="app-container pb-24">
@@ -565,7 +597,6 @@ export default function DriverRequestDetailPage() {
             <Package className="h-3.5 w-3.5" />짐 정보
           </div>
 
-          {/* 가구 상세 옵션이 있으면 우선 표시 */}
           {request.furniture_details && request.furniture_details.length > 0 ? (
             <div className="space-y-2 mb-3">
               {request.furniture_details.map((d) => {
@@ -621,6 +652,11 @@ export default function DriverRequestDetailPage() {
               {request.notes}
             </p>
           </div>
+        )}
+
+        {/* 인증 안 된 기사에게 배너 표시 */}
+        {showVerificationBanner && (
+          <VerificationBanner level={verificationLevel} className="mt-5" />
         )}
 
         {/* 상태별 분기 */}

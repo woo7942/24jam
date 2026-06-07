@@ -4,12 +4,28 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 
-interface Profile {
+export type VerificationLevel =
+  | "unverified"
+  | "pending"
+  | "verified"
+  | "veteran";
+
+export interface Profile {
   id: string;
   name: string;
   email: string;
   role: "customer" | "driver" | "admin";
   phone: string;
+  // 기사 전용 필드 (선택)
+  vehicle_type?: string | null;
+  vehicle_number?: string | null;
+  service_areas?: string[] | null;
+  years_of_experience?: number | null;
+  bio?: string | null;
+  verification_level?: VerificationLevel | null;
+  verification_documents?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export function useAuth() {
@@ -23,7 +39,10 @@ export function useAuth() {
     const loadUser = async () => {
       console.log("🔍 [useAuth] 시작");
       try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
         console.log("🔍 [useAuth] user:", user);
         console.log("🔍 [useAuth] userError:", userError);
 
@@ -46,7 +65,7 @@ export function useAuth() {
         console.log("🔍 [useAuth] profile:", profileData);
         console.log("🔍 [useAuth] profileError:", profileError);
 
-        setProfile(profileData);
+        setProfile(profileData as Profile | null);
       } catch (e) {
         console.error("🔍 [useAuth] 예외 발생:", e);
       } finally {
@@ -57,7 +76,9 @@ export function useAuth() {
 
     loadUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       console.log("🔍 [useAuth] auth 변경:", event, session?.user?.email);
       if (session?.user) {
         setUser(session.user);

@@ -2,6 +2,31 @@ import { createClient } from "./client";
 
 export type UserRole = "customer" | "driver";
 
+export type VerificationLevel =
+  | "unverified"
+  | "pending"
+  | "verified"
+  | "veteran";
+
+// users 테이블 프로필 타입
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  phone: string;
+  role: UserRole;
+  created_at?: string;
+  updated_at?: string;
+  // 기사 전용 필드
+  vehicle_type?: string | null;
+  vehicle_number?: string | null;
+  service_areas?: string[] | null;
+  years_of_experience?: number | null;
+  bio?: string | null;
+  verification_level?: VerificationLevel | null;
+  verification_documents?: Record<string, unknown> | null;
+}
+
 export interface SignUpParams {
   email: string;
   password: string;
@@ -85,7 +110,7 @@ export async function signOut() {
 }
 
 // 현재 사용자 정보 가져오기
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<UserProfile | null> {
   const supabase = createClient();
 
   const {
@@ -99,5 +124,5 @@ export async function getCurrentUser() {
     .eq("id", user.id)
     .single();
 
-  return profile;
+  return profile as UserProfile | null;
 }
