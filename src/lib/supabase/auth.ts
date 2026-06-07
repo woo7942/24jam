@@ -8,6 +8,11 @@ export interface SignUpParams {
   name: string;
   phone: string;
   role: UserRole;
+  // 기사 전용 (선택)
+  vehicleType?: string;
+  vehicleNumber?: string;
+  serviceAreas?: string[];
+  yearsOfExperience?: number;
 }
 
 export interface SignInParams {
@@ -16,18 +21,44 @@ export interface SignInParams {
 }
 
 // 회원가입
-export async function signUp({ email, password, name, phone, role }: SignUpParams) {
+export async function signUp(params: SignUpParams) {
+  const {
+    email,
+    password,
+    name,
+    phone,
+    role,
+    vehicleType,
+    vehicleNumber,
+    serviceAreas,
+    yearsOfExperience,
+  } = params;
+
   const supabase = createClient();
-  
+
+  // 메타데이터 구성 (트리거에서 사용)
+  const metaData: Record<string, unknown> = {
+    name,
+    phone,
+    role,
+  };
+
+  if (role === "driver") {
+    if (vehicleType) metaData.vehicle_type = vehicleType;
+    if (vehicleNumber) metaData.vehicle_number = vehicleNumber;
+    if (serviceAreas && serviceAreas.length > 0) {
+      metaData.service_areas = serviceAreas;
+    }
+    if (yearsOfExperience !== undefined && yearsOfExperience !== null) {
+      metaData.years_of_experience = yearsOfExperience;
+    }
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      data: {
-        name,
-        phone,
-        role,
-      },
+      data: metaData,
     },
   });
 
@@ -37,7 +68,7 @@ export async function signUp({ email, password, name, phone, role }: SignUpParam
 // 로그인
 export async function signIn({ email, password }: SignInParams) {
   const supabase = createClient();
-  
+
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -56,8 +87,10 @@ export async function signOut() {
 // 현재 사용자 정보 가져오기
 export async function getCurrentUser() {
   const supabase = createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return null;
 
   const { data: profile } = await supabase
